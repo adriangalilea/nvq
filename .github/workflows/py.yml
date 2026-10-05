@@ -1,0 +1,29 @@
+# The Python client against the shared fixtures and schema, on the oldest Python it supports. Its types
+# are generated from the schema (make types): regenerating them here must change nothing.
+# The binary a wheel carries is checked at release, the only time python/ holds one.
+name: py
+
+on:
+  push:
+    branches: [main]
+    paths: ['python/**', 'schema/**', 'test/fixtures/**', 'Makefile', '.github/workflows/py.yml']
+  pull_request:
+    paths: ['python/**', 'schema/**', 'test/fixtures/**', 'Makefile', '.github/workflows/py.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  py:
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: python } }
+    env: { NVQ_VERSION: 0.0.0.dev0, UV_PYTHON: '3.12' }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: types match the schema
+        run: make -C .. -B types && git diff --exit-code src/nvq/documents.py
+      - run: uv run ruff check
+      - run: uv run ruff format --check --exclude src/nvq/documents.py
+      - run: uv run pyright src
+      - run: uv run pytest -v

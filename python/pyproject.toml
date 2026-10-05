@@ -1,0 +1,33 @@
+[project]
+name = "nvq"
+dynamic = ["version"]
+description = "NVIDIA cards as JSON, for programs: list, probe, watch. Carries the nvq binary."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.urls]
+Source = "https://github.com/adriangalilea/nvq"
+
+[project.scripts]
+nvq = "nvq:main"
+
+[dependency-groups]
+dev = ["pytest", "jsonschema", "pyright", "ruff"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# The version is the release's, stamped by the workflow: a build without NVQ_VERSION fails.
+[tool.hatch.version]
+source = "env"
+variable = "NVQ_VERSION"
+
+# src/nvq/bin/nvq is gitignored: hatchling would skip it without this.
+[tool.hatch.build.targets.wheel]
+packages = ["src/nvq"]
+artifacts = ["src/nvq/bin/nvq"]
+
+[tool.ruff]
+line-length = 110
