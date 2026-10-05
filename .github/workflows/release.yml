@@ -36,17 +36,26 @@ jobs:
       - name: test with the carried binary, build
         run: |
           export NVQ_VERSION=${VERSION#v}
-          mkdir src/nvq/bin
-          cp ../dist/nvq-linux-amd64 src/nvq/bin/nvq
+          # Artifacts drop file modes: install sets the one the wheel must carry.
+          install -D -m 755 ../dist/nvq-linux-amd64 src/nvq/bin/nvq
           uv run pytest -v
           for arch in amd64:x86_64 arm64:aarch64; do
-            cp ../dist/nvq-linux-${arch%:*} src/nvq/bin/nvq
+            install -m 755 ../dist/nvq-linux-${arch%:*} src/nvq/bin/nvq
             uv build --wheel -o build/$arch
             uvx wheel==0.48.0 tags --platform-tag manylinux2014_${arch#*:} --remove build/$arch/*-any.whl
           done
           rm -r src/nvq/bin
           uv build --wheel -o build/any
           mkdir ../wheels && mv build/*/*.whl ../wheels/ && ls -l ../wheels
+          # Each platform wheel carries one executable nvq; the generic wheel none.
+          python3 - ../wheels/*.whl <<'EOF'
+          import sys, zipfile
+          for path in sys.argv[1:]:
+              modes = [i.external_attr >> 16 for i in zipfile.ZipFile(path).infolist() if i.filename == "nvq/bin/nvq"]
+              want = [] if path.endswith("-any.whl") else [0o100755]
+              assert modes == want, f"{path}: nvq/bin/nvq modes {[oct(m) for m in modes]}, want {[oct(m) for m in want]}"
+              print(path, "ok")
+          EOF
       - uses: actions/upload-artifact@v7
         with: { name: wheels, path: wheels/ }
 
