@@ -2,7 +2,7 @@
 #   gh workflow run release.yml -f version=v0.3.0
 # It builds the binaries (c.yml), puts them in go/bin (the Go client embeds them), runs the client's
 # tests against them, commits them when their bytes changed, tags the commit vX.Y.Z (the binary) and
-# go/vX.Y.Z (the Go module), and publishes the GitHub release.
+# go/vX.Y.Z (the Go module), publishes the GitHub release, then the Python wheels to PyPI.
 name: release
 
 on:
@@ -20,8 +20,38 @@ jobs:
     uses: ./.github/workflows/c.yml
     with: { version: '${{ inputs.version }}' }
 
-  release:
+  # Three wheels from one build: one per Linux arch carrying that binary, and one carrying none for every
+  # other platform (NVQ(path=...) there). Tested with the amd64 binary in place, so a carried binary that
+  # does not print this schema stops the release before anything is tagged.
+  wheels:
     needs: [c]
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: python } }
+    env: { VERSION: '${{ inputs.version }}', UV_PYTHON: '3.12' }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - uses: actions/download-artifact@v8
+        with: { path: dist, merge-multiple: true }
+      - name: test with the carried binary, build
+        run: |
+          export NVQ_VERSION=${VERSION#v}
+          mkdir src/nvq/bin
+          cp ../dist/nvq-linux-amd64 src/nvq/bin/nvq
+          uv run pytest -v
+          for arch in amd64:x86_64 arm64:aarch64; do
+            cp ../dist/nvq-linux-${arch%:*} src/nvq/bin/nvq
+            uv build --wheel -o build/$arch
+            uvx wheel==0.48.0 tags --platform-tag manylinux2014_${arch#*:} --remove build/$arch/*-any.whl
+          done
+          rm -r src/nvq/bin
+          uv build --wheel -o build/any
+          mkdir ../wheels && mv build/*/*.whl ../wheels/ && ls -l ../wheels
+      - uses: actions/upload-artifact@v7
+        with: { name: wheels, path: wheels/ }
+
+  release:
+    needs: [c, wheels]
     runs-on: ubuntu-24.04
     env: { VERSION: '${{ inputs.version }}' }
     steps:
@@ -45,3 +75,15 @@ jobs:
         run: |
           cp schema/nvq.schema.json dist/
           gh release create "$VERSION" dist/nvq-linux-* dist/nvq.schema.json --title "$VERSION" --generate-notes
+
+  # PyPI trusts this workflow in the pypi environment (Trusted Publishing): no token is stored anywhere.
+  pypi:
+    needs: [wheels, release]
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions: { id-token: write }
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { name: wheels, path: wheels }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: { packages-dir: wheels/ }
