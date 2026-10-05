@@ -62,12 +62,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: NVIDIA headers (nvml.h, cuda.h only; no driver, no toolkit)
+      - name: NVIDIA headers (nvml.h, cuda.h; no driver, no compiler)
         run: |
           curl -fsSLO https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -qq
-          sudo apt-get install -y -qq cuda-nvml-dev-12-5 cuda-driver-dev-12-5 cuda-nvml-dev-12-9 cuda-driver-dev-12-9 \
-            cuda-nvml-dev-13-1 cuda-driver-dev-13-1 cuda-nvml-dev-13-4 cuda-driver-dev-13-4
+          # nvml.h is in cuda-nvml-dev, cuda.h in cuda-cudart-dev (cuda-driver-dev is only the stub library).
+          sudo apt-get install -y -qq cuda-nvml-dev-12-5 cuda-cudart-dev-12-5 cuda-nvml-dev-12-9 cuda-cudart-dev-12-9 \
+            cuda-nvml-dev-13-1 cuda-cudart-dev-13-1 cuda-nvml-dev-13-4 cuda-cudart-dev-13-4
       - run: make layout
 
   publish:
