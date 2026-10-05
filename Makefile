@@ -40,8 +40,9 @@ release: build/schema.inc
 types: go/documents.go python/src/nvq/documents.py
 
 GO_CAPS = UUID,PCIe,GPU,SM,SMs,MiB,MHz,ECC,CUDA,NVML,NVQ,PID,MS,GBs,OK,PState
+# The generator needs a newer Go than the module: GOTOOLCHAIN=auto fetches it for this command only.
 go/documents.go: schema/nvq.schema.json
-	go run github.com/atombender/go-jsonschema@v0.24.1 --package nvq --tags json --minimal-names \
+	GOTOOLCHAIN=auto go run github.com/atombender/go-jsonschema@v0.24.1 --package nvq --tags json --minimal-names \
 	  --capitalization $(GO_CAPS) --output $@ $<
 
 python/src/nvq/documents.py: schema/nvq.schema.json
