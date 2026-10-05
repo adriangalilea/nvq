@@ -3,6 +3,8 @@ name = "nvq"
 dynamic = ["version"]
 description = "NVIDIA cards as JSON, for programs: list, probe, watch. Carries the nvq binary."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]  # a link to the repository's
 requires-python = ">=3.12"
 dependencies = []
 

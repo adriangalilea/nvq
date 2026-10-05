@@ -155,3 +155,7 @@ TypeScript and the rest: no client yet. The first project that needs one adds it
 - `make types` regenerates every client's types from the schema; CI fails if that changes a committed file.
 - `make layout` compiles nvq's NVML and CUDA declarations against NVIDIA's own headers: struct layouts, constants and every function signature (each function nvq calls is assigned to a pointer of the signature nvq declares, so a wrong parameter is a compile error). CI runs it against CUDA 12.5, 12.9, 13.1 and 13.4. Where NVML replaced a function (`nvmlDeviceGetTemperature` by the versioned `nvmlDeviceGetTemperatureV` in 12.9, the throttle-named reasons query by the event-named one in driver 535), nvq calls the replacement when the driver exports it and the old one otherwise, and both signatures are checked; a new deprecation in a future header prints as a warning, the next migration.
 - Releases are built in manylinux2014 and CI asserts no symbol newer than glibc 2.17.
+
+## License
+
+[MIT](LICENSE).
