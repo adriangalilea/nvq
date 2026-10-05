@@ -1,0 +1,343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/adriangalilea/nvq/blob/main/schema/nvq.schema.json",
+  "title": "nvq",
+  "description": "NVIDIA cards as JSON. Every document carries \"nvq\": 1, the version of this schema; additive fields keep it, a removal or a change of meaning bumps it. Readers ignore keys they do not know. A value the card cannot report is absent, never zero, and named under \"unsupported\".",
+  "x-commands": {
+    "list": {
+      "usage": "nvq [--deadline-ms N] list",
+      "description": "Every card the kernel driver bound (the roster is /proc/driver/nvidia/gpus, so lost cards are listed too), with what NVML can say about each. No CUDA, no context: safe on a card that is busy.",
+      "deadlineMs": 10000,
+      "output": { "$ref": "#/$defs/list" },
+      "exit": {
+        "0": "every card answered",
+        "1": "at least one card is lost or erred; the document says which",
+        "3": "NVML cannot be used (error says why); cards come from the kernel alone, state unknown",
+        "5": "a driver call did not return before the deadline; the document is an error"
+      }
+    },
+    "probe": {
+      "usage": "nvq [--deadline-ms N] probe <GPU-uuid>",
+      "description": "Whether one card computes: CUDA init with only that card visible, context, allocation, PTX JIT, a kernel launch, the result verified. Reports the card's capability sheet. Opens a CUDA context: do not run on a card mid-work you care about.",
+      "deadlineMs": 60000,
+      "output": { "$ref": "#/$defs/probe" },
+      "exit": {
+        "0": "the kernel ran and its result verified",
+        "4": "a step failed; step and error say which",
+        "5": "a driver call did not return before the deadline; the document is an error"
+      }
+    },
+    "probe all": {
+      "usage": "nvq [--deadline-ms N] probe all",
+      "description": "probe on every card at once, each in its own process: a hung card cannot stall the others. A child that outlives the deadline is killed and reported; one stuck inside the driver cannot be reaped and is reported with its pid.",
+      "deadlineMs": 60000,
+      "output": { "$ref": "#/$defs/probeAll" },
+      "exit": {
+        "0": "every card's kernel ran and verified",
+        "3": "the kernel driver is not loaded; the document is an error",
+        "4": "at least one card failed; its entry says how"
+      }
+    },
+    "watch": {
+      "usage": "nvq watch [--every-ms N]",
+      "description": "Runs until killed, one JSON document per line: start, then Xid and double-bit ECC events as the driver raises them, a card lost the moment NVML stops reaching it (checked every second), and with --every-ms a sample per card at that interval (on the one-second tick).",
+      "output": { "$ref": "#/$defs/event" },
+      "exit": { "3": "NVML cannot be used; the single line is an error" }
+    },
+    "schema": {
+      "usage": "nvq schema",
+      "description": "This document.",
+      "output": { "type": "object" },
+      "exit": { "0": "always" }
+    },
+    "version": {
+      "usage": "nvq version",
+      "output": { "$ref": "#/$defs/version" },
+      "exit": { "0": "always" }
+    },
+    "*": { "exit": { "2": "usage error, text on stderr, nothing on stdout" } }
+  },
+  "$defs": {
+    "schemaVersion": { "const": 1 },
+    "uuid": { "type": "string", "pattern": "^GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "bus": { "type": "string", "pattern": "^[0-9a-f]{4,8}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]$", "description": "PCI location as the kernel prints it" },
+    "unixTime": { "type": "number", "description": "seconds since the epoch, millisecond precision" },
+    "code": {
+      "description": "Why something failed: NVML's return codes by name, plus nvq's own.",
+      "enum": [
+        "uninitialized", "invalid_argument", "not_supported", "no_permission", "already_initialized", "not_found",
+        "insufficient_size", "insufficient_power", "driver_not_loaded", "timeout", "irq_issue", "library_not_found",
+        "function_not_found", "corrupted_inforom", "gpu_is_lost", "reset_required", "operating_system",
+        "lib_rm_version_mismatch", "in_use", "memory", "no_data", "vgpu_ecc_not_supported", "insufficient_resources",
+        "freq_not_supported", "argument_version_mismatch", "deprecated", "not_ready", "gpu_not_found", "invalid_state",
+        "unknown", "too_many_cards", "deadline"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "description": "The whole command failed, or (in list) NVML could not be used.",
+      "required": ["nvq", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "error": { "$ref": "#/$defs/errorBody" }
+      }
+    },
+    "errorBody": {
+      "type": "object",
+      "required": ["code", "detail"],
+      "additionalProperties": false,
+      "properties": { "code": { "$ref": "#/$defs/code" }, "detail": { "type": "string" } }
+    },
+    "limit": {
+      "description": "Why the card's clocks are below their maximum right now (NVML clock event reasons).",
+      "enum": ["gpu_idle", "applications_clocks", "sw_power_cap", "hw_slowdown", "sync_boost", "sw_thermal", "hw_thermal", "hw_power_brake", "display_clocks"]
+    },
+    "list": {
+      "oneOf": [
+        { "$ref": "#/$defs/error" },
+        {
+          "type": "object",
+          "required": ["nvq", "driver", "cards"],
+          "additionalProperties": false,
+          "properties": {
+            "nvq": { "$ref": "#/$defs/schemaVersion" },
+            "driver": { "type": "string", "description": "kernel module version from /proc, \"590.48.01\"; empty when unreadable" },
+            "nvml": { "type": "string", "description": "NVML library version" },
+            "cuda": { "type": "string", "description": "highest CUDA version the driver supports, \"13.1\"" },
+            "error": { "$ref": "#/$defs/errorBody", "description": "NVML could not be used; every card's state is unknown" },
+            "cards": { "type": "array", "items": { "$ref": "#/$defs/card" } }
+          }
+        }
+      ]
+    },
+    "card": {
+      "type": "object",
+      "required": ["index", "uuid", "bus", "minor", "model", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "description": "position in bus order; not CUDA's or nvidia-smi's index" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "bus": { "$ref": "#/$defs/bus" },
+        "minor": { "type": "integer", "description": "/dev/nvidia<minor>; -1 when the kernel did not say" },
+        "model": { "type": "string" },
+        "state": { "enum": ["ok", "lost", "error", "unknown"], "description": "ok: NVML reaches it. lost: fell off the bus (gpu_is_lost). error: another NVML failure. unknown: NVML unusable" },
+        "error": { "$ref": "#/$defs/code", "description": "with state lost or error" },
+        "compute": { "type": "string", "description": "CUDA compute capability, \"8.6\"" },
+        "memoryMiB": {
+          "type": "object", "additionalProperties": false, "required": ["total", "used"],
+          "properties": { "total": { "type": "integer" }, "used": { "type": "integer" } }
+        },
+        "powerW": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "limit": { "type": "number", "description": "enforced limit" }, "draw": { "type": "number" } }
+        },
+        "tempC": { "type": "integer" },
+        "fanPct": { "type": "integer", "description": "target fan speed; consumer cards with fan control off report not_supported" },
+        "clocksMHz": {
+          "type": "object", "additionalProperties": false, "required": ["sm", "mem"],
+          "properties": { "sm": { "type": "integer" }, "mem": { "type": "integer" } }
+        },
+        "utilPct": {
+          "type": "object", "additionalProperties": false, "required": ["gpu", "mem"],
+          "properties": { "gpu": { "type": "integer" }, "mem": { "type": "integer" } }
+        },
+        "pstate": { "type": "integer", "description": "performance state, 0 fastest" },
+        "pcie": {
+          "type": "object", "additionalProperties": false, "required": ["gen", "width", "maxGen", "maxWidth"],
+          "description": "the link now and at best; a riser shows here (gen 1, width 1)",
+          "properties": { "gen": { "type": "integer" }, "width": { "type": "integer" }, "maxGen": { "type": "integer" }, "maxWidth": { "type": "integer" } }
+        },
+        "persistence": { "type": "boolean" },
+        "limits": { "type": "array", "items": { "$ref": "#/$defs/limit" } },
+        "processes": {
+          "type": "array",
+          "description": "compute processes holding the card",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["pid"],
+            "properties": { "pid": { "type": "integer" }, "usedMiB": { "type": "integer", "description": "absent when NVML cannot see it (another container)" } }
+          }
+        },
+        "unsupported": { "type": "array", "items": { "type": "string" }, "description": "fields this card does not report" },
+        "errors": { "type": "object", "additionalProperties": { "$ref": "#/$defs/code" }, "description": "fields whose query failed, by field" }
+      }
+    },
+    "probe": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] },
+    "probeAll": {
+      "oneOf": [
+        { "$ref": "#/$defs/error" },
+        {
+          "type": "object",
+          "required": ["nvq", "probes"],
+          "additionalProperties": false,
+          "properties": {
+            "nvq": { "$ref": "#/$defs/schemaVersion" },
+            "probes": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] } }
+          }
+        }
+      ]
+    },
+    "ms": { "type": "object", "additionalProperties": { "type": "number" }, "description": "milliseconds per step, in the order run" },
+    "probeFailed": {
+      "type": "object",
+      "required": ["nvq", "uuid", "ok", "step", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "ok": { "const": false },
+        "step": { "type": "string", "description": "load, init, device, uuid, name, memory, driver, attributes, context, alloc, memset, jit, function, launch, sync, copy, verify, free, unload, teardown; in probe all also hang (killed or stuck) and crash (died without a document)" },
+        "error": { "type": "string", "description": "a CUDA_ERROR_* name, or not_visible, more_than_one_visible, uuid_mismatch, no_compute_capability, wrong_result, library_not_found, function_not_found: <name>, killed_at_deadline, stuck_in_driver, no_output" },
+        "ms": { "$ref": "#/$defs/ms" },
+        "signal": { "type": "integer", "description": "crash: the signal that ended the child" },
+        "exit": { "type": "integer", "description": "crash: the child's exit code" },
+        "pid": { "type": "integer", "description": "stuck_in_driver: the child that could not be reaped" }
+      }
+    },
+    "probeOk": {
+      "type": "object",
+      "required": ["nvq", "uuid", "ok", "name", "cuda", "arch", "layout", "registers", "sharedBytes", "memory", "ms"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "ok": { "const": true },
+        "name": { "type": "string" },
+        "cuda": { "type": "string", "description": "CUDA driver API version, \"13.1\"" },
+        "arch": {
+          "type": "object", "additionalProperties": false, "required": ["compute", "sm", "family"],
+          "properties": {
+            "compute": { "type": "string", "description": "\"8.6\"" },
+            "sm": { "type": "string", "description": "the compile target, \"sm_86\"" },
+            "family": { "enum": ["kepler", "maxwell", "pascal", "volta", "turing", "ampere", "ada", "hopper", "blackwell", "unknown"] }
+          }
+        },
+        "layout": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "sms": { "type": "integer", "description": "streaming multiprocessors" },
+            "warpSize": { "type": "integer" },
+            "maxThreadsPerBlock": { "type": "integer" },
+            "maxThreadsPerSM": { "type": "integer" },
+            "maxBlocksPerSM": { "type": "integer" },
+            "maxWarpsPerSM": { "type": "integer", "description": "maxThreadsPerSM / warpSize" },
+            "maxBlockDim": { "type": "array", "items": { "type": "integer" }, "minItems": 3, "maxItems": 3 },
+            "maxGridDim": { "type": "array", "items": { "type": "integer" }, "minItems": 3, "maxItems": 3 }
+          }
+        },
+        "registers": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "perBlock": { "type": "integer" }, "perSM": { "type": "integer" } }
+        },
+        "sharedBytes": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "perBlock": { "type": "integer", "description": "without opting in" },
+            "perBlockOptin": { "type": "integer", "description": "the most a kernel may request with cuFuncSetAttribute" },
+            "perSM": { "type": "integer" }
+          }
+        },
+        "memory": {
+          "type": "object", "additionalProperties": false, "required": ["totalMiB"],
+          "properties": {
+            "totalMiB": { "type": "integer" },
+            "busWidthBits": { "type": "integer" },
+            "clockMHz": { "type": "integer" },
+            "peakGBs": { "type": "number", "description": "clockMHz × 2 (double data rate) × busWidthBits / 8, in GB/s" },
+            "l2Bytes": { "type": "integer" },
+            "l2PersistingBytes": { "type": "integer" },
+            "constantBytes": { "type": "integer" }
+          }
+        },
+        "smClockMHz": { "type": "integer", "description": "the SM's peak clock" },
+        "copyEngines": { "type": "integer", "description": "copies that can overlap a kernel" },
+        "concurrentKernels": { "type": "boolean" },
+        "computeMode": { "enum": ["default", "prohibited", "exclusive_process", "unknown"] },
+        "ecc": { "type": "boolean" },
+        "integrated": { "type": "boolean" },
+        "multiGpuBoard": { "type": "boolean" },
+        "unsupported": { "type": "array", "items": { "type": "string" }, "description": "attributes the driver did not report" },
+        "ms": { "$ref": "#/$defs/ms" }
+      }
+    },
+    "event": {
+      "oneOf": [
+        { "$ref": "#/$defs/error" },
+        {
+          "type": "object",
+          "required": ["nvq", "event", "at"],
+          "properties": {
+            "nvq": { "$ref": "#/$defs/schemaVersion" },
+            "event": { "enum": ["start", "xid", "ecc_double", "lost", "sample", "wait_error"] },
+            "at": { "$ref": "#/$defs/unixTime" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "event": { "const": "start" } } },
+              "then": {
+                "required": ["cards"],
+                "properties": {
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object", "additionalProperties": false, "required": ["uuid", "bus", "state"],
+                      "properties": {
+                        "uuid": { "$ref": "#/$defs/uuid" },
+                        "bus": { "$ref": "#/$defs/bus" },
+                        "state": { "enum": ["ok", "lost", "error"] },
+                        "error": { "$ref": "#/$defs/code" },
+                        "events": { "type": "array", "items": { "enum": ["xid", "ecc_double"] }, "description": "event kinds registered for this card" },
+                        "eventsError": { "$ref": "#/$defs/code" }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "event": { "const": "xid" } } },
+              "then": {
+                "required": ["xid", "meaning"],
+                "properties": {
+                  "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" },
+                  "xid": { "type": "integer" },
+                  "meaning": { "type": "string", "description": "NVIDIA's name for it; empty for an Xid nvq has no name for" }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "event": { "const": "ecc_double" } } },
+              "then": { "required": ["data"], "properties": { "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" }, "data": { "type": "integer" } } }
+            },
+            {
+              "if": { "properties": { "event": { "const": "lost" } } },
+              "then": { "required": ["uuid", "bus", "error"], "properties": { "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" }, "error": { "$ref": "#/$defs/code" } } }
+            },
+            {
+              "if": { "properties": { "event": { "const": "wait_error" } } },
+              "then": { "required": ["error"], "properties": { "error": { "$ref": "#/$defs/code" } } }
+            },
+            {
+              "if": { "properties": { "event": { "const": "sample" } } },
+              "then": {
+                "required": ["uuid", "bus"],
+                "properties": {
+                  "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" },
+                  "tempC": { "type": "integer" }, "powerW": { "type": "number" }, "smMHz": { "type": "integer" },
+                  "utilPct": { "type": "integer" }, "fanPct": { "type": "integer" },
+                  "limits": { "type": "array", "items": { "$ref": "#/$defs/limit" } }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "version": {
+      "type": "object",
+      "required": ["nvq", "version"],
+      "additionalProperties": false,
+      "properties": { "nvq": { "$ref": "#/$defs/schemaVersion" }, "version": { "type": "string" } }
+    }
+  }
+}

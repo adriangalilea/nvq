@@ -1,0 +1,1 @@
+{"nvq":1,"driver":"590.48.01","nvml":"12.550.fake","cuda":"12.4","cards":[{"index":0,"uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","minor":0,"model":"NVIDIA GeForce RTX 3090","state":"lost","error":"gpu_is_lost"}]}

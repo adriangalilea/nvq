@@ -1,0 +1,3 @@
+{"nvq":1,"event":"start","at":1791196173.580,"cards":[{"uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","state":"ok","events":["xid"]}]}
+{"nvq":1,"event":"sample","at":1791196174.589,"uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","tempC":38,"powerW":69.534,"smMHz":1110,"utilPct":0,"fanPct":70,"limits":["sw_power_cap"]}
+{"nvq":1,"event":"sample","at":1791196175.591,"uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","tempC":38,"powerW":33.732,"smMHz":615,"utilPct":0,"fanPct":70,"limits":["sw_power_cap"]}

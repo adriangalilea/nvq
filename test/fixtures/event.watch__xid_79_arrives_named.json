@@ -1,0 +1,2 @@
+{"nvq":1,"event":"start","at":1791196150.843,"cards":[{"uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","state":"ok","events":["xid"]}]}
+{"nvq":1,"event":"xid","at":1791196150.843,"uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","xid":79,"meaning":"gpu has fallen off the bus"}

@@ -1,0 +1,1 @@
+{"nvq":1,"driver":"590.48.01","error":{"code":"function_not_found","detail":"libnvidia-ml.so.1 has no nvmlDeviceGetComputeRunningProcesses_v3: driver too old for nvq"},"cards":[{"index":0,"uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","minor":0,"model":"NVIDIA GeForce RTX 3090","state":"unknown"}]}
