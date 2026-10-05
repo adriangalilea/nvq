@@ -135,67 +135,6 @@ class Process(TypedDict):
     """
 
 
-class Card(TypedDict):
-    index: int
-    """
-    position in bus order; not CUDA's or nvidia-smi's index
-    """
-    uuid: Uuid
-    bus: Bus
-    minor: int
-    """
-    /dev/nvidia<minor>; -1 when the kernel did not say
-    """
-    model: str
-    state: Literal["ok", "lost", "error", "unknown"]
-    """
-    ok: NVML reaches it. lost: fell off the bus (gpu_is_lost). error: another NVML failure. unknown: NVML unusable
-    """
-    error: NotRequired[Code]
-    """
-    with state lost or error
-    """
-    compute: NotRequired[str]
-    """
-    CUDA compute capability, "8.6"
-    """
-    memoryMiB: NotRequired[MemoryMiB]
-    powerW: NotRequired[PowerW]
-    tempC: NotRequired[int]
-    fanPct: NotRequired[int]
-    """
-    target fan speed; consumer cards with fan control off report not_supported
-    """
-    clocksMHz: NotRequired[ClocksMHz]
-    utilPct: NotRequired[UtilPct]
-    pstate: NotRequired[int]
-    """
-    performance state, 0 fastest
-    """
-    pcie: NotRequired[Pcie]
-    """
-    the link now and at best; a riser shows here (gen 1, width 1)
-    """
-    energyJ: NotRequired[float]
-    """
-    energy the card used since the driver loaded, joules; the difference of two readings over their interval is average power
-    """
-    persistence: NotRequired[bool]
-    limits: NotRequired[list[Limit]]
-    processes: NotRequired[list[Process]]
-    """
-    compute processes holding the card
-    """
-    unsupported: NotRequired[list[str]]
-    """
-    fields this card does not report
-    """
-    errors: NotRequired[dict[str, Code]]
-    """
-    fields whose query failed, by field
-    """
-
-
 type Ms = dict[str, float]
 """
 milliseconds per step, in the order run
@@ -421,13 +360,97 @@ class Version(TypedDict):
     version: str
 
 
-class Error(TypedDict):
+class ErrorDocument(TypedDict):
     """
     The whole command failed, or (in list) NVML could not be used.
     """
 
     nvq: SchemaVersion
     error: ErrorBody
+
+
+class Card(TypedDict):
+    index: int
+    """
+    position in bus order; not CUDA's or nvidia-smi's index
+    """
+    uuid: Uuid
+    bus: Bus
+    minor: int
+    """
+    /dev/nvidia<minor>; -1 when the kernel did not say
+    """
+    model: str
+    state: Literal["ok", "lost", "error", "unknown"]
+    """
+    ok: NVML reaches it. lost: fell off the bus (gpu_is_lost). error: another NVML failure. unknown: NVML unusable
+    """
+    error: NotRequired[Code]
+    """
+    with state lost or error
+    """
+    compute: NotRequired[str]
+    """
+    CUDA compute capability, "8.6"
+    """
+    memoryMiB: NotRequired[MemoryMiB]
+    powerW: NotRequired[PowerW]
+    tempC: NotRequired[int]
+    fanPct: NotRequired[int]
+    """
+    target fan speed; consumer cards with fan control off report not_supported
+    """
+    clocksMHz: NotRequired[ClocksMHz]
+    utilPct: NotRequired[UtilPct]
+    pstate: NotRequired[int]
+    """
+    performance state, 0 fastest
+    """
+    pcie: NotRequired[Pcie]
+    """
+    the link now and at best; a riser shows here (gen 1, width 1)
+    """
+    energyJ: NotRequired[float]
+    """
+    energy the card used since the driver loaded, joules; the difference of two readings over their interval is average power
+    """
+    persistence: NotRequired[bool]
+    limits: NotRequired[list[Limit]]
+    processes: NotRequired[list[Process]]
+    """
+    compute processes holding the card
+    """
+    unsupported: NotRequired[list[str]]
+    """
+    fields this card does not report
+    """
+    errors: NotRequired[dict[str, Code]]
+    """
+    fields whose query failed, by field
+    """
+
+
+type Probe = ErrorDocument | ProbeOk | ProbeFailed
+
+
+class ProbeAllOk(TypedDict):
+    """
+    One entry per card; a card that failed is an entry that says how, not a failure.
+    """
+
+    nvq: SchemaVersion
+    probes: list[ErrorDocument | ProbeOk | ProbeFailed]
+
+
+class EventStart(TypedDict):
+    """
+    First line: the cards watched and the event kinds registered on each.
+    """
+
+    nvq: SchemaVersion
+    event: Literal["start"]
+    at: UnixTime
+    cards: list[WatchCard]
 
 
 class ListOk(TypedDict):
@@ -455,36 +478,13 @@ class ListOk(TypedDict):
     cards: list[Card]
 
 
-type Probe = Error | ProbeOk | ProbeFailed
+type ProbeAll = ErrorDocument | ProbeAllOk
 
 
-class ProbeAllOk(TypedDict):
-    """
-    One entry per card; a card that failed is an entry that says how, not a failure.
-    """
-
-    nvq: SchemaVersion
-    probes: list[Error | ProbeOk | ProbeFailed]
-
-
-class EventStart(TypedDict):
-    """
-    First line: the cards watched and the event kinds registered on each.
-    """
-
-    nvq: SchemaVersion
-    event: Literal["start"]
-    at: UnixTime
-    cards: list[WatchCard]
-
-
-type List = Error | ListOk
-
-
-type ProbeAll = Error | ProbeAllOk
-
-
-type Event = Error | EventStart | EventXid | EventEccDouble | EventLost | EventWaitError | EventSample
+type Event = ErrorDocument | EventStart | EventXid | EventEccDouble | EventLost | EventWaitError | EventSample
 """
 One line of watch, told apart by "event".
 """
+
+
+type List = ErrorDocument | ListOk

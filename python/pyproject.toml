@@ -31,3 +31,4 @@ artifacts = ["src/nvq/bin/nvq"]
 
 [tool.ruff]
 line-length = 110
+extend-exclude = ["src/nvq/documents.py"]  # generated: make types

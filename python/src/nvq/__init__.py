@@ -41,10 +41,23 @@ from .documents import (
 )
 
 __all__ = [
-    "NVQ", "Error", "SCHEMA", "BINARY", "documents",
-    "ListOk", "Card", "ProbeOk", "ProbeFailed", "WatchEvent",
-    "EventStart", "EventXid", "EventEccDouble", "EventLost", "EventWaitError", "EventSample",
-]  # fmt: skip
+    "BINARY",
+    "NVQ",
+    "SCHEMA",
+    "Card",
+    "Error",
+    "EventEccDouble",
+    "EventLost",
+    "EventSample",
+    "EventStart",
+    "EventWaitError",
+    "EventXid",
+    "ListOk",
+    "ProbeFailed",
+    "ProbeOk",
+    "WatchEvent",
+    "documents",
+]
 
 type WatchEvent = EventStart | EventXid | EventEccDouble | EventLost | EventWaitError | EventSample
 
@@ -95,7 +108,9 @@ class NVQ:
             raise _error(doc, code)
         return doc
 
-    def probe_all(self, timeout: float | None = None) -> list[ProbeOk | ProbeFailed | documents.Error]:
+    def probe_all(
+        self, timeout: float | None = None
+    ) -> list[ProbeOk | ProbeFailed | documents.ErrorDocument]:
         """Probes every card at once, each in its own process: a hung card cannot stall the others. An
         entry is a child's own document, so a child that failed as a whole is an error document."""
         doc, code = self._run(["probe", "all"], timeout)
@@ -133,7 +148,9 @@ class NVQ:
         """The document nvq printed and its exit code. A process that printed none (not found, killed, a
         usage error) raises here; any other exit is the document's to explain."""
         deadline = ["--deadline-ms", str(round(self.deadline * 1000))] if self.deadline is not None else []
-        p = subprocess.run([str(self._binary()), *deadline, *args], capture_output=True, timeout=timeout)
+        p = subprocess.run(
+            [str(self._binary()), *deadline, *args], capture_output=True, timeout=timeout, check=False
+        )
         if not p.stdout.strip():
             stderr = p.stderr.decode(errors="replace").strip()
             raise RuntimeError(f"nvq {' '.join(args)}: exit {p.returncode}, no document: {stderr}")
@@ -159,7 +176,7 @@ def _document(raw: bytes, args: list[str]) -> Any:
 
 def _error(doc: Any, code: int) -> Error:
     if not isinstance(doc.get("error"), dict):
-        raise ValueError(f"nvq: neither the expected document nor an error: {json.dumps(doc)[:200]}")
+        raise TypeError(f"nvq: neither the expected document nor an error: {json.dumps(doc)[:200]}")
     return Error(doc["error"]["code"], doc["error"]["detail"], code)
 
 

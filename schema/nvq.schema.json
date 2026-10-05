@@ -58,7 +58,7 @@
     "*": { "exit": { "2": "usage error, text on stderr, nothing on stdout" } }
   },
   "$defs": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "type": "integer", "const": 1 },
     "uuid": { "type": "string", "pattern": "^GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
     "bus": { "type": "string", "pattern": "^[0-9a-f]{4,8}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]$", "description": "PCI location as the kernel prints it" },
     "unixTime": { "type": "number", "description": "seconds since the epoch, millisecond precision" },
@@ -73,7 +73,7 @@
         "unknown", "too_many_cards", "deadline"
       ]
     },
-    "error": {
+    "errorDocument": {
       "type": "object",
       "description": "The whole command failed, or (in list) NVML could not be used.",
       "required": ["nvq", "error"],
@@ -93,7 +93,7 @@
       "description": "Why the card's clocks are below their maximum right now (NVML clock event reasons).",
       "enum": ["gpu_idle", "applications_clocks", "sw_power_cap", "hw_slowdown", "sync_boost", "sw_thermal", "hw_thermal", "hw_power_brake", "display_clocks"]
     },
-    "list": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/listOk" }] },
+    "list": { "oneOf": [{ "$ref": "#/$defs/errorDocument" }, { "$ref": "#/$defs/listOk" }] },
     "listOk": {
       "type": "object",
       "description": "Every card the kernel bound; lost ones are cards with state lost, not a failure.",
@@ -151,20 +151,17 @@
         "energyJ": { "type": "number", "description": "energy the card used since the driver loaded, joules; the difference of two readings over their interval is average power" },
         "persistence": { "type": "boolean" },
         "limits": { "type": "array", "items": { "$ref": "#/$defs/limit" } },
-        "processes": {
-          "type": "array",
-          "description": "compute processes holding the card",
-          "items": {
-            "type": "object", "additionalProperties": false, "required": ["pid"],
-            "properties": { "pid": { "type": "integer" }, "usedMiB": { "type": "integer", "description": "absent when NVML cannot see it (another container)" } }
-          }
-        },
+        "processes": { "type": "array", "description": "compute processes holding the card", "items": { "$ref": "#/$defs/process" } },
         "unsupported": { "type": "array", "items": { "type": "string" }, "description": "fields this card does not report" },
         "errors": { "type": "object", "additionalProperties": { "$ref": "#/$defs/code" }, "description": "fields whose query failed, by field" }
       }
     },
-    "probe": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] },
-    "probeAll": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeAllOk" }] },
+    "process": {
+      "type": "object", "additionalProperties": false, "required": ["pid"],
+      "properties": { "pid": { "type": "integer" }, "usedMiB": { "type": "integer", "description": "absent when NVML cannot see it (another container)" } }
+    },
+    "probe": { "oneOf": [{ "$ref": "#/$defs/errorDocument" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] },
+    "probeAll": { "oneOf": [{ "$ref": "#/$defs/errorDocument" }, { "$ref": "#/$defs/probeAllOk" }] },
     "probeAllOk": {
       "type": "object",
       "description": "One entry per card; a card that failed is an entry that says how, not a failure.",
@@ -172,7 +169,7 @@
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "probes": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] } }
+        "probes": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/errorDocument" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] } }
       }
     },
     "ms": { "type": "object", "additionalProperties": { "type": "number" }, "description": "milliseconds per step, in the order run" },
@@ -183,7 +180,7 @@
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
         "uuid": { "$ref": "#/$defs/uuid" },
-        "ok": { "const": false },
+        "ok": { "type": "boolean", "const": false },
         "step": { "type": "string", "description": "load, init, device, uuid, name, memory, driver, attributes, context, alloc, memset, jit, function, launch, sync, copy, verify, free, unload, teardown; in probe all also hang (killed or stuck) and crash (died without a document)" },
         "error": { "type": "string", "description": "a CUDA_ERROR_* name, or not_visible, more_than_one_visible, uuid_mismatch, no_compute_capability, wrong_result, library_not_found, function_not_found: <name>, killed_at_deadline, stuck_in_driver, no_output" },
         "ms": { "$ref": "#/$defs/ms" },
@@ -199,7 +196,7 @@
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
         "uuid": { "$ref": "#/$defs/uuid" },
-        "ok": { "const": true },
+        "ok": { "type": "boolean", "const": true },
         "name": { "type": "string" },
         "cuda": { "type": "string", "description": "CUDA driver API version, \"13.1\"" },
         "arch": {
@@ -261,7 +258,7 @@
     "event": {
       "description": "One line of watch, told apart by \"event\".",
       "oneOf": [
-        { "$ref": "#/$defs/error" },
+        { "$ref": "#/$defs/errorDocument" },
         { "$ref": "#/$defs/eventStart" },
         { "$ref": "#/$defs/eventXid" },
         { "$ref": "#/$defs/eventEccDouble" },
@@ -277,7 +274,7 @@
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "event": { "const": "start" },
+        "event": { "type": "string", "const": "start" },
         "at": { "$ref": "#/$defs/unixTime" },
         "cards": { "type": "array", "items": { "$ref": "#/$defs/watchCard" } }
       }
@@ -302,7 +299,7 @@
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "event": { "const": "xid" },
+        "event": { "type": "string", "const": "xid" },
         "at": { "$ref": "#/$defs/unixTime" },
         "uuid": { "$ref": "#/$defs/uuid" },
         "bus": { "$ref": "#/$defs/bus" },
@@ -317,7 +314,7 @@
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "event": { "const": "ecc_double" },
+        "event": { "type": "string", "const": "ecc_double" },
         "at": { "$ref": "#/$defs/unixTime" },
         "uuid": { "$ref": "#/$defs/uuid" },
         "bus": { "$ref": "#/$defs/bus" },
@@ -331,7 +328,7 @@
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "event": { "const": "lost" },
+        "event": { "type": "string", "const": "lost" },
         "at": { "$ref": "#/$defs/unixTime" },
         "uuid": { "$ref": "#/$defs/uuid" },
         "bus": { "$ref": "#/$defs/bus" },
@@ -345,7 +342,7 @@
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "event": { "const": "wait_error" },
+        "event": { "type": "string", "const": "wait_error" },
         "at": { "$ref": "#/$defs/unixTime" },
         "error": { "$ref": "#/$defs/code" }
       }
@@ -357,7 +354,7 @@
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "event": { "const": "sample" },
+        "event": { "type": "string", "const": "sample" },
         "at": { "$ref": "#/$defs/unixTime" },
         "uuid": { "$ref": "#/$defs/uuid" },
         "bus": { "$ref": "#/$defs/bus" },
