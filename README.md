@@ -3,7 +3,7 @@
 NVIDIA cards as JSON, for programs. One binary, no driver needed to start, every failure a stable code, every call bounded by a deadline.
 
 ```sh
-nvq list
+nvq list | jq
 ```
 
 ```json
@@ -21,24 +21,47 @@ nvq list
       "model": "NVIDIA GeForce RTX 3090",
       "state": "ok",
       "compute": "8.6",
-      "memoryMiB": { "total": 24576, "used": 2957 },
-      "powerW": { "limit": 260.000, "draw": 230.728 },
+      "memoryMiB": {
+        "total": 24576,
+        "used": 2957
+      },
+      "powerW": {
+        "limit": 260.000,
+        "draw": 230.728
+      },
       "tempC": 49,
       "fanPct": 70,
-      "clocksMHz": { "sm": 1500, "mem": 10001 },
-      "utilPct": { "gpu": 100, "mem": 2 },
+      "clocksMHz": {
+        "sm": 1500,
+        "mem": 10001
+      },
+      "utilPct": {
+        "gpu": 100,
+        "mem": 2
+      },
       "pstate": 2,
-      "pcie": { "gen": 4, "width": 16, "maxGen": 4, "maxWidth": 16, "replays": 0 },
+      "pcie": {
+        "gen": 4,
+        "width": 16,
+        "maxGen": 4,
+        "maxWidth": 16,
+        "replays": 0
+      },
       "energyJ": 15640697.951,
       "persistence": true,
       "limits": [],
-      "processes": [{ "pid": 2133245, "usedMiB": 2500 }]
+      "processes": [
+        {
+          "pid": 2133245,
+          "usedMiB": 2500
+        }
+      ]
     }
   ]
 }
 ```
 
-Real output from an RTX 3090 ([`test/fixtures/list.real__list.json`](test/fixtures/list.real__list.json)), indented here; nvq prints one line. A card that fell off the bus keeps its identity (`uuid`, `bus`, `model`) and says why, `"state": "lost", "error": "gpu_is_lost"`, with nothing it can no longer read.
+Real output from an RTX 3090 ([`test/fixtures/list.real__list.json`](test/fixtures/list.real__list.json)). nvq itself prints one compact line, for programs; `jq` is only for reading it. A card that fell off the bus keeps its identity (`uuid`, `bus`, `model`) and says why, `"state": "lost", "error": "gpu_is_lost"`, with nothing it can no longer read.
 
 ## Why
 
