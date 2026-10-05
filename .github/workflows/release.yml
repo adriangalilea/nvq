@@ -22,7 +22,7 @@ jobs:
           - { arch: arm64, runner: ubuntu-24.04-arm, image: quay.io/pypa/manylinux2014_aarch64 }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: build
         run: |
           version=${GITHUB_REF_NAME}
@@ -42,7 +42,7 @@ jobs:
           # No NVIDIA driver on a hosted runner: list must say so, as a document, with exit 3.
           set +e; out=$($bin list); code=$?; set -e
           echo "$out"; [[ $code == 3 ]] && jq -e '.error.code == "driver_not_loaded"' <<<"$out"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nvq-linux-${{ matrix.arch }}
           path: dist/
@@ -50,18 +50,33 @@ jobs:
   schema:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
       - run: go test ./...
 
-  publish:
-    if: github.ref_type == 'tag'
-    needs: [build, schema]
+  # nvq declares the NVML and CUDA slices it uses by hand; this compiles those declarations against
+  # NVIDIA's own headers (layouts, constants, every function signature) for the oldest and newest
+  # toolkits NVIDIA ships for this runner, so a header change fails here, not on a rig.
+  layout:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - name: NVIDIA headers (nvml.h, cuda.h only; no driver, no toolkit)
+        run: |
+          curl -fsSLO https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update -qq
+          sudo apt-get install -y -qq cuda-nvml-dev-12-5 cuda-driver-dev-12-5 cuda-nvml-dev-12-9 cuda-driver-dev-12-9 \
+            cuda-nvml-dev-13-1 cuda-driver-dev-13-1 cuda-nvml-dev-13-4 cuda-driver-dev-13-4
+      - run: make layout
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [build, schema, layout]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with: { path: dist, merge-multiple: true }
       - name: release
         env: { GH_TOKEN: '${{ github.token }}' }

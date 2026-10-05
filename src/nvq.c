@@ -174,9 +174,25 @@ static void kernel_driver(char *out, size_t size) {
 static struct {
 #define DECL(r, n, a) r(*n) a;
     NVML_FUNCS(DECL)
+    NVML_CURRENT_FUNCS(DECL)
+    NVML_REPLACED_FUNCS(DECL)
 #undef DECL
-    nvml_reasons_fn reasons;
 } nv;
+
+// The card's temperature through whichever query the driver has: the versioned one (NVML 12.9+), else
+// the one it replaced.
+static nvmlReturn_t card_temp(nvmlDevice_t d, unsigned int *c) {
+    if (!nv.nvmlDeviceGetTemperatureV) return nv.nvmlDeviceGetTemperature(d, NVML_TEMPERATURE_GPU, c);
+    nvmlTemperature_t t = {.version = NVQ_TEMPERATURE_V1, .sensorType = NVML_TEMPERATURE_GPU};
+    nvmlReturn_t r = nv.nvmlDeviceGetTemperatureV(d, &t);
+    if (r == NVML_SUCCESS) *c = (unsigned int)t.temperature;
+    return r;
+}
+
+static nvmlReturn_t card_reasons(nvmlDevice_t d, unsigned long long *bits) {
+    if (nv.nvmlDeviceGetCurrentClocksEventReasons) return nv.nvmlDeviceGetCurrentClocksEventReasons(d, bits);
+    return nv.nvmlDeviceGetCurrentClocksThrottleReasons(d, bits);
+}
 
 // nvml_open loads and initialises NVML. On failure it returns the error code and fills detail;
 // the caller decides whether that is fatal (watch) or a fact to report beside the roster (list).
@@ -194,9 +210,15 @@ static const char *nvml_open(char *detail, size_t size) {
     }
     NVML_FUNCS(LOAD)
 #undef LOAD
-    nv.reasons = (nvml_reasons_fn)dlsym(h, "nvmlDeviceGetCurrentClocksEventReasons");
-    if (!nv.reasons) nv.reasons = (nvml_reasons_fn)dlsym(h, "nvmlDeviceGetCurrentClocksThrottleReasons");
-    if (!nv.reasons) {
+#define LOAD_OPTIONAL(r, n, a) nv.n = (r(*) a)dlsym(h, #n);
+    NVML_CURRENT_FUNCS(LOAD_OPTIONAL)
+    NVML_REPLACED_FUNCS(LOAD_OPTIONAL)
+#undef LOAD_OPTIONAL
+    if (!nv.nvmlDeviceGetTemperatureV && !nv.nvmlDeviceGetTemperature) {
+        snprintf(detail, size, "libnvidia-ml.so.1 has neither nvmlDeviceGetTemperatureV nor nvmlDeviceGetTemperature");
+        return "function_not_found";
+    }
+    if (!nv.nvmlDeviceGetCurrentClocksEventReasons && !nv.nvmlDeviceGetCurrentClocksThrottleReasons) {
         snprintf(detail, size, "libnvidia-ml.so.1 has no clock event or throttle reasons query");
         return "function_not_found";
     }
@@ -296,7 +318,7 @@ static int write_card(int index, const Card *c, int nvml_up) {
     }
     if (power_open) jeo();
     unsigned int v;
-    if (ok(&o, "tempC", nv.nvmlDeviceGetTemperature(d, NVML_TEMPERATURE_GPU, &v))) ju("tempC", v);
+    if (ok(&o, "tempC", card_temp(d, &v))) ju("tempC", v);
     if (ok(&o, "fanPct", nv.nvmlDeviceGetFanSpeed(d, &v))) ju("fanPct", v);
     unsigned int sm, memclk;
     nvmlReturn_t rs = nv.nvmlDeviceGetClockInfo(d, NVML_CLOCK_SM, &sm);
@@ -321,18 +343,24 @@ static int write_card(int index, const Card *c, int nvml_up) {
     nvmlReturn_t r2 = nv.nvmlDeviceGetCurrPcieLinkWidth(d, &width);
     nvmlReturn_t r3 = nv.nvmlDeviceGetMaxPcieLinkGeneration(d, &maxgen);
     nvmlReturn_t r4 = nv.nvmlDeviceGetMaxPcieLinkWidth(d, &maxwidth);
+    unsigned int replays;
+    nvmlReturn_t r5 = nv.nvmlDeviceGetPcieReplayCounter(d, &replays);
     if (ok(&o, "pcieGen", r1) & ok(&o, "pcieWidth", r2) & ok(&o, "pcieMaxGen", r3) & ok(&o, "pcieMaxWidth", r4)) {
         jo("pcie");
         ju("gen", gen);
         ju("width", width);
         ju("maxGen", maxgen);
         ju("maxWidth", maxwidth);
+        // Link-level retransmissions since the driver loaded: a rising count is a failing riser or slot.
+        if (ok(&o, "pcieReplays", r5)) ju("replays", replays);
         jeo();
-    }
+    } else ok(&o, "pcieReplays", r5);
+    unsigned long long mj;
+    if (ok(&o, "energyJ", nv.nvmlDeviceGetTotalEnergyConsumption(d, &mj))) jf("energyJ", mj / 1000.0);
     int pm;
     if (ok(&o, "persistence", nv.nvmlDeviceGetPersistenceMode(d, &pm))) jb("persistence", pm);
     unsigned long long reasons;
-    if (ok(&o, "limits", nv.reasons(d, &reasons))) write_reasons("limits", reasons);
+    if (ok(&o, "limits", card_reasons(d, &reasons))) write_reasons("limits", reasons);
     nvmlProcessInfo_t procs[128];
     unsigned int nprocs = 128;
     if (ok(&o, "processes", nv.nvmlDeviceGetComputeRunningProcesses_v3(d, &nprocs, procs))) {
@@ -796,7 +824,7 @@ static _Noreturn void cmd_watch(long every_ms) {
         for (int i = 0; i < n; i++) {
             if (lost[i]) continue;
             unsigned int t;
-            r = nv.nvmlDeviceGetTemperature(dev[i], NVML_TEMPERATURE_GPU, &t);
+            r = card_temp(dev[i], &t);
             if (r == NVML_ERROR_GPU_IS_LOST || r == NVML_ERROR_DRIVER_NOT_LOADED) {
                 lost[i] = 1;
                 event_head("lost", &cards[i]);
@@ -813,12 +841,15 @@ static _Noreturn void cmd_watch(long every_ms) {
                 unsigned int v, mw;
                 nvmlUtilization_t u;
                 unsigned long long reasons;
-                if (nv.nvmlDeviceGetTemperature(dev[i], NVML_TEMPERATURE_GPU, &v) == NVML_SUCCESS) ju("tempC", v);
+                if (card_temp(dev[i], &v) == NVML_SUCCESS) ju("tempC", v);
                 if (nv.nvmlDeviceGetPowerUsage(dev[i], &mw) == NVML_SUCCESS) jf("powerW", mw / 1000.0);
                 if (nv.nvmlDeviceGetClockInfo(dev[i], NVML_CLOCK_SM, &v) == NVML_SUCCESS) ju("smMHz", v);
                 if (nv.nvmlDeviceGetUtilizationRates(dev[i], &u) == NVML_SUCCESS) ju("utilPct", u.gpu);
                 if (nv.nvmlDeviceGetFanSpeed(dev[i], &v) == NVML_SUCCESS) ju("fanPct", v);
-                if (nv.reasons(dev[i], &reasons) == NVML_SUCCESS) write_reasons("limits", reasons);
+                unsigned long long mj;
+                if (nv.nvmlDeviceGetTotalEnergyConsumption(dev[i], &mj) == NVML_SUCCESS) jf("energyJ", mj / 1000.0);
+                if (nv.nvmlDeviceGetPcieReplayCounter(dev[i], &v) == NVML_SUCCESS) ju("pcieReplays", v);
+                if (card_reasons(dev[i], &reasons) == NVML_SUCCESS) write_reasons("limits", reasons);
                 jeo();
                 jline();
             }

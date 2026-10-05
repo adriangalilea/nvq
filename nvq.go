@@ -71,6 +71,7 @@ type Card struct {
 	UtilPct     *Util             `json:"utilPct,omitempty"`
 	PState      *int              `json:"pstate,omitempty"`
 	PCIe        *PCIe             `json:"pcie,omitempty"`
+	EnergyJ     *float64          `json:"energyJ,omitempty"` // since the driver loaded
 	Persistence *bool             `json:"persistence,omitempty"`
 	Limits      []string          `json:"limits,omitempty"`
 	Processes   []Process         `json:"processes,omitempty"`
@@ -103,6 +104,8 @@ type PCIe struct {
 	Width    int `json:"width"`
 	MaxGen   int `json:"maxGen"`
 	MaxWidth int `json:"maxWidth"`
+	// Replays counts link retransmissions since the driver loaded; rising means a failing riser or slot.
+	Replays *int64 `json:"replays,omitempty"`
 }
 
 type Process struct {
@@ -251,12 +254,14 @@ type Event struct {
 	Data    *uint64     `json:"data,omitempty"`    // ecc_double
 	Error   string      `json:"error,omitempty"`   // lost, wait_error
 
-	TempC   *int     `json:"tempC,omitempty"` // sample
-	PowerW  *float64 `json:"powerW,omitempty"`
-	SMMHz   *int     `json:"smMHz,omitempty"`
-	UtilPct *int     `json:"utilPct,omitempty"`
-	FanPct  *int     `json:"fanPct,omitempty"`
-	Limits  []string `json:"limits,omitempty"`
+	TempC       *int     `json:"tempC,omitempty"` // sample
+	PowerW      *float64 `json:"powerW,omitempty"`
+	SMMHz       *int     `json:"smMHz,omitempty"`
+	UtilPct     *int     `json:"utilPct,omitempty"`
+	FanPct      *int     `json:"fanPct,omitempty"`
+	EnergyJ     *float64 `json:"energyJ,omitempty"`
+	PCIeReplays *int64   `json:"pcieReplays,omitempty"`
+	Limits      []string `json:"limits,omitempty"`
 }
 
 type WatchCard struct {

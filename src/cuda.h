@@ -2,7 +2,9 @@
 #pragma once
 #include <stddef.h>
 
+// NVIDIA's enums are int-sized (test/layout.c asserts it), so int stands in for each here.
 typedef int CUresult;
+typedef int CUdevice_attribute;
 typedef int CUdevice;
 typedef struct CUctx_st *CUcontext;
 typedef struct CUmod_st *CUmodule;
@@ -12,6 +14,7 @@ typedef unsigned long long CUdeviceptr;
 typedef struct { char bytes[16]; } CUuuid;
 
 // CUdevice_attribute values nvq reads (identical in cuda.h 12.4 through 13.1; test/layout.c asserts).
+// The CUDA_FUNCS list lives in cuda_funcs.h, included below the types it names.
 enum {
     ATTR_MAX_THREADS_PER_BLOCK = 1,
     ATTR_MAX_BLOCK_DIM_X = 2,
@@ -68,29 +71,7 @@ static inline const char *compute_mode(int m) {
     return "unknown";
 }
 
-#define CUDA_FUNCS(X)                                                                              \
-    X(CUresult, cuInit, (unsigned int))                                                            \
-    X(CUresult, cuDriverGetVersion, (int *))                                                       \
-    X(CUresult, cuDeviceGetCount, (int *))                                                         \
-    X(CUresult, cuDeviceGet, (CUdevice *, int))                                                    \
-    X(CUresult, cuDeviceGetUuid_v2, (CUuuid *, CUdevice))                                          \
-    X(CUresult, cuDeviceGetName, (char *, int, CUdevice))                                          \
-    X(CUresult, cuDeviceGetAttribute, (int *, int, CUdevice))                                      \
-    X(CUresult, cuDeviceTotalMem_v2, (size_t *, CUdevice))                                         \
-    X(CUresult, cuCtxCreate_v2, (CUcontext *, unsigned int, CUdevice))                             \
-    X(CUresult, cuCtxDestroy_v2, (CUcontext))                                                      \
-    X(CUresult, cuCtxSynchronize, (void))                                                          \
-    X(CUresult, cuMemAlloc_v2, (CUdeviceptr *, size_t))                                            \
-    X(CUresult, cuMemFree_v2, (CUdeviceptr))                                                       \
-    X(CUresult, cuMemsetD32_v2, (CUdeviceptr, unsigned int, size_t))                               \
-    X(CUresult, cuMemcpyDtoH_v2, (void *, CUdeviceptr, size_t))                                    \
-    X(CUresult, cuModuleLoadData, (CUmodule *, const void *))                                      \
-    X(CUresult, cuModuleGetFunction, (CUfunction *, CUmodule, const char *))                       \
-    X(CUresult, cuModuleUnload, (CUmodule))                                                        \
-    X(CUresult, cuLaunchKernel,                                                                    \
-      (CUfunction, unsigned, unsigned, unsigned, unsigned, unsigned, unsigned, unsigned, CUstream, \
-       void **, void **))                                                                          \
-    X(CUresult, cuGetErrorName, (CUresult, const char **))
+#include "cuda_funcs.h"
 
 // The probe kernel: every thread of one block writes value + its index. PTX for sm_50, so the driver
 // JITs it for whatever card is there: the probe proves the JIT path a fat binary falls back to.

@@ -1,1 +1,1 @@
-{"nvq":1,"uuid":"GPU-00000000-1111-2222-3333-444444444444","ok":false,"step":"jit","error":"CUDA_ERROR_INVALID_PTX","ms":{"init":0.001,"device":0.000,"uuid":0.006,"name":0.000,"memory":0.000,"driver":0.000,"attributes":0.001,"context":0.000,"alloc":0.000,"memset":0.000,"jit":0.000}}
+{"nvq":1,"uuid":"GPU-00000000-1111-2222-3333-444444444444","ok":false,"step":"jit","error":"CUDA_ERROR_INVALID_PTX","ms":{"init":0.001,"device":0.000,"uuid":0.007,"name":0.000,"memory":0.000,"driver":0.000,"attributes":0.001,"context":0.000,"alloc":0.000,"memset":0.000,"jit":0.000}}

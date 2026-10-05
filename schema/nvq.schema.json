@@ -146,8 +146,12 @@
         "pcie": {
           "type": "object", "additionalProperties": false, "required": ["gen", "width", "maxGen", "maxWidth"],
           "description": "the link now and at best; a riser shows here (gen 1, width 1)",
-          "properties": { "gen": { "type": "integer" }, "width": { "type": "integer" }, "maxGen": { "type": "integer" }, "maxWidth": { "type": "integer" } }
+          "properties": {
+            "gen": { "type": "integer" }, "width": { "type": "integer" }, "maxGen": { "type": "integer" }, "maxWidth": { "type": "integer" },
+            "replays": { "type": "integer", "description": "link-level retransmissions since the driver loaded; one that keeps rising is a failing riser or slot" }
+          }
         },
+        "energyJ": { "type": "number", "description": "energy the card used since the driver loaded, joules; the difference of two readings over their interval is average power" },
         "persistence": { "type": "boolean" },
         "limits": { "type": "array", "items": { "$ref": "#/$defs/limit" } },
         "processes": {
@@ -325,6 +329,8 @@
                   "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" },
                   "tempC": { "type": "integer" }, "powerW": { "type": "number" }, "smMHz": { "type": "integer" },
                   "utilPct": { "type": "integer" }, "fanPct": { "type": "integer" },
+                  "energyJ": { "type": "number", "description": "cumulative, as in list" },
+                  "pcieReplays": { "type": "integer", "description": "cumulative, as in list" },
                   "limits": { "type": "array", "items": { "$ref": "#/$defs/limit" } }
                 }
               }

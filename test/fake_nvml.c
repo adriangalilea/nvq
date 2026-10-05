@@ -1,6 +1,7 @@
 // A scripted libnvidia-ml.so.1 for the failures a real card cannot be asked to show on demand.
 // NVQ_FAKE picks one: ok | mismatch | lost | hang (interruptible) | stuck (every signal blocked, as a
-// call inside the driver). Built with -DOLD it lacks one function, as a driver older than nvq would.
+// call inside the driver). Built with -DOLD it lacks one function, as a driver older than nvq would;
+// with -DPRE_TEMPV it lacks the versioned temperature query, as drivers before NVML 12.9 do.
 #define _GNU_SOURCE
 #include <signal.h>
 #include <stdlib.h>
@@ -45,7 +46,16 @@ nvmlReturn_t nvmlDeviceGetCudaComputeCapability(nvmlDevice_t d, int *a, int *b) 
 nvmlReturn_t nvmlDeviceGetMemoryInfo(nvmlDevice_t d, nvmlMemory_t *m) { (void)d; m->total = 24ULL << 30; m->used = 1ULL << 30; m->free = 23ULL << 30; return 0; }
 nvmlReturn_t nvmlDeviceGetEnforcedPowerLimit(nvmlDevice_t d, unsigned int *v) { (void)d; *v = 300000; return 0; }
 nvmlReturn_t nvmlDeviceGetPowerUsage(nvmlDevice_t d, unsigned int *v) { (void)d; *v = 250500; return 0; }
+// The replaced query answers 61, the versioned one 62: the test tells which path nvq took.
 nvmlReturn_t nvmlDeviceGetTemperature(nvmlDevice_t d, int s, unsigned int *v) { (void)d; (void)s; *v = 61; return 0; }
+#ifndef PRE_TEMPV
+nvmlReturn_t nvmlDeviceGetTemperatureV(nvmlDevice_t d, nvmlTemperature_t *t) {
+    (void)d;
+    if (t->version != NVQ_TEMPERATURE_V1 || t->sensorType != NVML_TEMPERATURE_GPU) return 25; // argument_version_mismatch
+    t->temperature = 62;
+    return 0;
+}
+#endif
 // A card whose fan the driver cannot read: absent, never 0.
 nvmlReturn_t nvmlDeviceGetFanSpeed(nvmlDevice_t d, unsigned int *v) { (void)d; (void)v; return NVML_ERROR_NOT_SUPPORTED; }
 nvmlReturn_t nvmlDeviceGetClockInfo(nvmlDevice_t d, int c, unsigned int *v) { (void)d; *v = c == 1 ? 1695 : 9751; return 0; }
@@ -57,6 +67,9 @@ nvmlReturn_t nvmlDeviceGetCurrPcieLinkWidth(nvmlDevice_t d, unsigned int *v) { (
 nvmlReturn_t nvmlDeviceGetMaxPcieLinkGeneration(nvmlDevice_t d, unsigned int *v) { (void)d; *v = 4; return 0; }
 nvmlReturn_t nvmlDeviceGetMaxPcieLinkWidth(nvmlDevice_t d, unsigned int *v) { (void)d; *v = 16; return 0; }
 nvmlReturn_t nvmlDeviceGetPersistenceMode(nvmlDevice_t d, int *v) { (void)d; *v = 0; return 0; }
+// The riser is retransmitting: a replay count that keeps rising is the tell.
+nvmlReturn_t nvmlDeviceGetPcieReplayCounter(nvmlDevice_t d, unsigned int *v) { (void)d; *v = 4711; return 0; }
+nvmlReturn_t nvmlDeviceGetTotalEnergyConsumption(nvmlDevice_t d, unsigned long long *v) { (void)d; *v = 123456789ULL; return 0; }
 nvmlReturn_t nvmlDeviceGetCurrentClocksEventReasons(nvmlDevice_t d, unsigned long long *v) { (void)d; *v = 0x4 | 0x20; return 0; }
 #ifndef OLD
 nvmlReturn_t nvmlDeviceGetComputeRunningProcesses_v3(nvmlDevice_t d, unsigned int *n, nvmlProcessInfo_t *p) {

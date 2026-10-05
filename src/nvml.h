@@ -3,7 +3,12 @@
 // are NVML's (nvml.h, API v12/13); a mismatch is a wrong answer, so keep them byte-exact.
 #pragma once
 
+// NVIDIA's enums are int-sized; test/layout.c asserts it, so int stands in for each here.
 typedef int nvmlReturn_t;
+typedef int nvmlTemperatureSensors_t;
+typedef int nvmlClockType_t;
+typedef int nvmlPstates_t;
+typedef int nvmlEnableState_t;
 typedef struct nvmlDevice_st *nvmlDevice_t;
 typedef struct nvmlEventSet_st *nvmlEventSet_t;
 
@@ -34,6 +39,14 @@ typedef struct {
     unsigned int gpuInstanceId, computeInstanceId;
 } nvmlEventData_t;
 
+// Versioned struct of nvmlDeviceGetTemperatureV (NVML 12.9+): version = sizeof | 1 << 24.
+typedef struct {
+    unsigned int version;
+    nvmlTemperatureSensors_t sensorType;
+    int temperature;
+} nvmlTemperature_t;
+#define NVQ_TEMPERATURE_V1 ((unsigned int)(sizeof(nvmlTemperature_t) | (1u << 24)))
+
 // The same numbers are asserted against NVIDIA's own nvml.h by test/layout.c.
 #include <stddef.h>
 _Static_assert(sizeof(nvmlMemory_t) == 24, "nvmlMemory_t");
@@ -41,6 +54,7 @@ _Static_assert(sizeof(nvmlUtilization_t) == 8, "nvmlUtilization_t");
 _Static_assert(sizeof(nvmlPciInfo_t) == 68 && offsetof(nvmlPciInfo_t, busId) == 36, "nvmlPciInfo_t");
 _Static_assert(sizeof(nvmlProcessInfo_t) == 24 && offsetof(nvmlProcessInfo_t, usedGpuMemory) == 8, "nvmlProcessInfo_t");
 _Static_assert(sizeof(nvmlEventData_t) == 32 && offsetof(nvmlEventData_t, eventData) == 16, "nvmlEventData_t");
+_Static_assert(sizeof(nvmlTemperature_t) == 12 && offsetof(nvmlTemperature_t, temperature) == 8, "nvmlTemperature_t");
 
 #define NVML_TEMPERATURE_GPU 0
 #define NVML_CLOCK_SM 1
@@ -49,41 +63,7 @@ _Static_assert(sizeof(nvmlEventData_t) == 32 && offsetof(nvmlEventData_t, eventD
 #define NVML_EVENT_DOUBLE_BIT_ECC 0x2ULL
 #define NVML_EVENT_XID 0x8ULL
 
-// Every function nvq needs. A driver missing one is too old for nvq: function_not_found, by name.
-#define NVML_FUNCS(X)                                                                              \
-    X(nvmlReturn_t, nvmlInit_v2, (void))                                                           \
-    X(nvmlReturn_t, nvmlShutdown, (void))                                                          \
-    X(nvmlReturn_t, nvmlSystemGetDriverVersion, (char *, unsigned int))                            \
-    X(nvmlReturn_t, nvmlSystemGetNVMLVersion, (char *, unsigned int))                              \
-    X(nvmlReturn_t, nvmlSystemGetCudaDriverVersion_v2, (int *))                                    \
-    X(nvmlReturn_t, nvmlDeviceGetHandleByPciBusId_v2, (const char *, nvmlDevice_t *))              \
-    X(nvmlReturn_t, nvmlDeviceGetName, (nvmlDevice_t, char *, unsigned int))                       \
-    X(nvmlReturn_t, nvmlDeviceGetUUID, (nvmlDevice_t, char *, unsigned int))                       \
-    X(nvmlReturn_t, nvmlDeviceGetPciInfo_v3, (nvmlDevice_t, nvmlPciInfo_t *))                      \
-    X(nvmlReturn_t, nvmlDeviceGetCudaComputeCapability, (nvmlDevice_t, int *, int *))              \
-    X(nvmlReturn_t, nvmlDeviceGetMemoryInfo, (nvmlDevice_t, nvmlMemory_t *))                       \
-    X(nvmlReturn_t, nvmlDeviceGetEnforcedPowerLimit, (nvmlDevice_t, unsigned int *))               \
-    X(nvmlReturn_t, nvmlDeviceGetPowerUsage, (nvmlDevice_t, unsigned int *))                       \
-    X(nvmlReturn_t, nvmlDeviceGetTemperature, (nvmlDevice_t, int, unsigned int *))                 \
-    X(nvmlReturn_t, nvmlDeviceGetFanSpeed, (nvmlDevice_t, unsigned int *))                         \
-    X(nvmlReturn_t, nvmlDeviceGetClockInfo, (nvmlDevice_t, int, unsigned int *))                   \
-    X(nvmlReturn_t, nvmlDeviceGetUtilizationRates, (nvmlDevice_t, nvmlUtilization_t *))            \
-    X(nvmlReturn_t, nvmlDeviceGetPerformanceState, (nvmlDevice_t, int *))                          \
-    X(nvmlReturn_t, nvmlDeviceGetCurrPcieLinkGeneration, (nvmlDevice_t, unsigned int *))           \
-    X(nvmlReturn_t, nvmlDeviceGetCurrPcieLinkWidth, (nvmlDevice_t, unsigned int *))                \
-    X(nvmlReturn_t, nvmlDeviceGetMaxPcieLinkGeneration, (nvmlDevice_t, unsigned int *))            \
-    X(nvmlReturn_t, nvmlDeviceGetMaxPcieLinkWidth, (nvmlDevice_t, unsigned int *))                 \
-    X(nvmlReturn_t, nvmlDeviceGetPersistenceMode, (nvmlDevice_t, int *))                           \
-    X(nvmlReturn_t, nvmlDeviceGetComputeRunningProcesses_v3,                                       \
-      (nvmlDevice_t, unsigned int *, nvmlProcessInfo_t *))                                         \
-    X(nvmlReturn_t, nvmlDeviceGetSupportedEventTypes, (nvmlDevice_t, unsigned long long *))        \
-    X(nvmlReturn_t, nvmlEventSetCreate, (nvmlEventSet_t *))                                        \
-    X(nvmlReturn_t, nvmlDeviceRegisterEvents, (nvmlDevice_t, unsigned long long, nvmlEventSet_t))  \
-    X(nvmlReturn_t, nvmlEventSetWait_v2, (nvmlEventSet_t, nvmlEventData_t *, unsigned int))
-
-// The clock-limit reasons query was renamed in driver 535 (throttle → event). The real world carries
-// both names; nvq takes whichever the driver exports.
-typedef nvmlReturn_t (*nvml_reasons_fn)(nvmlDevice_t, unsigned long long *);
+#include "nvml_funcs.h"
 
 // NVML return codes by name: the stable vocabulary of nvq's errors.
 static inline const char *nvml_code(nvmlReturn_t r) {

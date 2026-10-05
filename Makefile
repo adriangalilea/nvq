@@ -1,5 +1,6 @@
 # make          ./nvq, with the schema compiled in
 # make test     the scripted-failure suite (Linux, nvidia kernel module loaded, jq)
+# make layout   nvq's NVML/CUDA declarations against NVIDIA's headers in /usr/local/cuda-*
 # make release  dist/nvq-linux-<arch> + .sha256, the artifacts a GitHub release carries
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
@@ -17,6 +18,15 @@ build/schema.inc: schema/nvq.schema.json
 test: nvq
 	test/run.sh
 
+# Every layout, constant and function signature nvq declares, against each CUDA toolkit installed.
+# Deprecations print and do not fail: they are next migrations, not mismatches.
+TOOLKITS ?= $(wildcard /usr/local/cuda-*/include)
+layout:
+	@test -n "$(TOOLKITS)" || { echo "no /usr/local/cuda-*/include"; exit 1; }
+	@for d in $(TOOLKITS); do \
+	  $(CC) -std=c11 -Wall -Werror -Wno-error=deprecated-declarations -I$$d -fsyntax-only test/layout.c || exit 1; \
+	  echo "layout ok: $$d"; done
+
 # Always a fresh compile on this machine: never a ./nvq left by another build.
 release: build/schema.inc
 	mkdir -p dist
@@ -26,4 +36,4 @@ release: build/schema.inc
 clean:
 	rm -rf nvq build dist
 
-.PHONY: test release clean
+.PHONY: test layout release clean

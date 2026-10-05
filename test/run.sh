@@ -12,10 +12,11 @@ trap 'rm -rf "$tmp"' EXIT
 CFLAGS="-std=c11 -O2 -Wall -Wextra -Werror"
 make -s nvq
 cp nvq "$tmp/nvq"
-mkdir -p "$tmp/lib" "$tmp/old"
+mkdir -p "$tmp/lib" "$tmp/old" "$tmp/pre"
 cc $CFLAGS -shared -fPIC -o "$tmp/lib/libnvidia-ml.so.1" test/fake_nvml.c
 cc $CFLAGS -shared -fPIC -o "$tmp/lib/libcuda.so.1" test/fake_cuda.c
 cc $CFLAGS -DOLD -shared -fPIC -o "$tmp/old/libnvidia-ml.so.1" test/fake_nvml.c
+cc $CFLAGS -DPRE_TEMPV -shared -fPIC -o "$tmp/pre/libnvidia-ml.so.1" test/fake_nvml.c
 uuid=$(jq -r '.cards[0].uuid' < <(NVQ_FAKE=ok LD_LIBRARY_PATH="$tmp/lib" "$tmp/nvq" list))
 
 fails=0
@@ -46,9 +47,12 @@ expect() {
 L=$tmp/lib
 expect "list: every field, fan unsupported, riser link, hidden process memory" 0 \
   '.cards[0] | .state=="ok" and .unsupported==["fanPct"] and (has("fanPct")|not)
-   and .pcie=={"gen":1,"width":1,"maxGen":4,"maxWidth":16} and .limits==["sw_power_cap","sw_thermal"]
+   and .pcie=={"gen":1,"width":1,"maxGen":4,"maxWidth":16,"replays":4711} and .energyJ==123456.789
+   and .limits==["sw_power_cap","sw_thermal"] and .tempC==62
    and .processes==[{"pid":4242,"usedMiB":3072},{"pid":4343}] and .powerW=={"limit":300,"draw":250.5}' \
   ok "$L" -- list
+expect "list: a driver before NVML 12.9 answers through the query it replaced" 0 \
+  '.cards[0] | .state=="ok" and .tempC==61' ok "$tmp/pre" -- list
 expect "list: driver and library disagree after an upgrade" 3 \
   '.error.code=="lib_rm_version_mismatch" and .cards[0].state=="unknown" and (.cards[0].uuid|startswith("GPU-"))' \
   mismatch "$L" -- list
