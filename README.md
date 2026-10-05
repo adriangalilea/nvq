@@ -38,7 +38,7 @@ nvq list
 }
 ```
 
-Real output from an RTX 3090 ([`test/fixtures/list.real__list.json`](test/fixtures/list.real__list.json)), indented here; nvq prints one line. A lost card is the same entry with `"state": "lost"`.
+Real output from an RTX 3090 ([`test/fixtures/list.real__list.json`](test/fixtures/list.real__list.json)), indented here; nvq prints one line. A card that fell off the bus keeps its identity (`uuid`, `bus`, `model`) and says why, `"state": "lost", "error": "gpu_is_lost"`, with nothing it can no longer read.
 
 ## Why
 
