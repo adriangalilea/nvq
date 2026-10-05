@@ -1,12 +1,13 @@
-// Package nvq runs the nvq binary and decodes what it says about NVIDIA cards.
+// Package nvq runs the nvq binary and decodes what it says about NVIDIA cards. On linux/amd64 and
+// linux/arm64 the binary ships inside this module (binary.go), so importing it is the whole install.
 //
-//	n := nvq.NVQ{Path: "/opt/tool/nvq"}
+//	var n nvq.NVQ                  // the module's own binary; NVQ{Path: …} runs another
 //	list, err := n.List(ctx)       // every card, lost ones included; no CUDA context opened
 //	probe, err := n.ProbeAll(ctx)  // does each card run a kernel, and its capability sheet
 //	for ev, err := range n.Watch(ctx, time.Second) { … }  // Xid events, lost cards, samples
 //
 // A value the card cannot report is a nil pointer, never zero. The contract is the JSON Schema the
-// binary prints with `nvq schema` (schema/nvq.schema.json); these types mirror it, and the tests hold
+// binary prints with `nvq schema` (../schema/nvq.schema.json); these types mirror it, and the tests hold
 // both to the binary's real output.
 package nvq
 
@@ -26,7 +27,7 @@ import (
 // Schema is the document version this package reads.
 const Schema = 1
 
-// NVQ is a path to the binary. The zero value runs "nvq" from PATH.
+// NVQ is the binary to run: Path, or when empty the one this module carries (Binary).
 type NVQ struct {
 	Path string
 	// Deadline bounds one list or probe inside nvq itself (--deadline-ms); 0 keeps nvq's default
@@ -281,7 +282,12 @@ func (n NVQ) Watch(ctx context.Context, every time.Duration) iter.Seq2[Event, er
 		if every > 0 {
 			args = append(args, "--every-ms", strconv.FormatInt(every.Milliseconds(), 10))
 		}
-		cmd := exec.CommandContext(ctx, n.path(), args...)
+		bin, err := n.path()
+		if err != nil {
+			yield(Event{}, err)
+			return
+		}
+		cmd := exec.CommandContext(ctx, bin, args...)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			yield(Event{}, err)
@@ -328,11 +334,11 @@ func (n NVQ) Watch(ctx context.Context, every time.Duration) iter.Seq2[Event, er
 
 // ---- plumbing ---------------------------------------------------------------------------------
 
-func (n NVQ) path() string {
+func (n NVQ) path() (string, error) {
 	if n.Path == "" {
-		return "nvq"
+		return Binary()
 	}
-	return n.Path
+	return n.Path, nil
 }
 
 func (n NVQ) deadlineArgs(args ...string) []string {
@@ -345,7 +351,11 @@ func (n NVQ) deadlineArgs(args ...string) []string {
 // run returns stdout and the exit code. A process that never wrote a document (not found, killed,
 // a usage error) is an error here; any other exit is the document's to explain.
 func (n NVQ) run(ctx context.Context, args ...string) ([]byte, int, error) {
-	cmd := exec.CommandContext(ctx, n.path(), args...)
+	bin, err := n.path()
+	if err != nil {
+		return nil, 0, err
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

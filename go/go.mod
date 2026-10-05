@@ -1,4 +1,4 @@
-module github.com/adriangalilea/nvq
+module github.com/adriangalilea/nvq/go
 
 go 1.24
 

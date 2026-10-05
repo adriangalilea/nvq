@@ -15,11 +15,11 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// Fixtures are real nvq output, captured by test/run.sh (NVQ_FIXTURES) on a box with a card, from the
+// Fixtures are real nvq output, captured by ../test/run.sh (NVQ_FIXTURES) on a box with a card, from the
 // scripted failure libraries and the real card. Named <schema def>.<case>.json, or .jsonl for watch.
 func fixtures(t *testing.T) map[string][]string {
 	t.Helper()
-	paths, err := filepath.Glob("test/fixtures/*.json*")
+	paths, err := filepath.Glob("../test/fixtures/*.json*")
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("no fixtures: %v", err)
 	}
@@ -51,7 +51,7 @@ func docs(t *testing.T, path string) [][]byte {
 
 func TestEveryFixtureMatchesTheSchema(t *testing.T) {
 	c := jsonschema.NewCompiler()
-	f, err := os.Open("schema/nvq.schema.json")
+	f, err := os.Open("../schema/nvq.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestEveryFixtureDecodesIntoTheTypes(t *testing.T) {
 // fake is an nvq that replays a fixture and exits with code.
 func fake(t *testing.T, fixture string, code int) NVQ {
 	t.Helper()
-	abs, err := filepath.Abs(filepath.Join("test/fixtures", fixture))
+	abs, err := filepath.Abs(filepath.Join("../test/fixtures", fixture))
 	if err != nil {
 		t.Fatal(err)
 	}

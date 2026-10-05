@@ -32,6 +32,15 @@ Programs that run on GPU machines (miners, schedulers, health checks, stats expo
 
 nvq's own costs, stated: a process per query (about 12 ms for `list` on an RTX 3090; `watch` is one long-lived process), a second binary to ship, and the NVML and CUDA declarations it keeps itself (about fifty functions and structs, checked against NVIDIA's headers in CI).
 
+## Layout
+
+| | |
+|---|---|
+| `src/` | nvq itself, C11, no dependency beyond libc and the driver's own libraries, loaded at run time |
+| `schema/` | the contract every output follows, compiled into the binary |
+| `test/` | the ground truth every client is held to: scripted driver libraries that stage each failure, and `fixtures/`, real output from them and from real cards |
+| `go/` | the Go client, with the released binaries embedded |
+
 ## Install
 
 Linux, amd64 or arm64, glibc 2.17 or newer (every distro an NVIDIA driver supports):
@@ -42,7 +51,7 @@ curl -fsSL https://github.com/adriangalilea/nvq/releases/latest/download/nvq-lin
 install -m 755 nvq-linux-amd64 /usr/local/bin/nvq
 ```
 
-Pin a version in anything you ship: `releases/download/v0.2.0/…`. Each release also carries `nvq.schema.json`. Building yourself: `make` (a C11 compiler, nothing else).
+Pin a version in anything you ship: `releases/download/v0.3.0/…`. Each release also carries `nvq.schema.json`. A Go program needs none of this: the client carries the binary (below). Building yourself: `make` (a C11 compiler, nothing else).
 
 ## Commands
 
@@ -53,7 +62,7 @@ Pin a version in anything you ship: `releases/download/v0.2.0/…`. Each release
 | `nvq probe all` | probe on every card at once, each in its own process: a hung card cannot stall the others | yes |
 | `nvq watch [--every-ms N]` | one JSON line per event until killed: Xid errors (named: 79 is "gpu has fallen off the bus"), double-bit ECC, a card lost the moment NVML stops reaching it, optional samples | no |
 | `nvq schema` | the contract below, as JSON | no |
-| `nvq version` | `{"nvq":1,"version":"v0.2.0"}` | no |
+| `nvq version` | `{"nvq":1,"version":"v0.3.0"}` | no |
 
 `--deadline-ms N` (before the command) bounds `list` (default 10 s) and `probe` (60 s). A driver call that does not return ends there with `{"nvq":1,"error":{"code":"deadline",…}}`. One stuck inside the kernel cannot be interrupted at all: `probe all` reports that child as `stuck_in_driver` with its pid instead of hanging with it.
 
@@ -71,24 +80,28 @@ Exit codes: 0 ok, 1 a card is lost or erred (the document says which), 2 usage, 
 
 ## Clients
 
-A client runs the binary and decodes its JSON, so any language gets one in a page. Go ships here:
+A client runs the binary and decodes its JSON, so any language gets one in a page. Each is a directory at the root, held to the same ground truth: a test that validates every file in `test/fixtures` against `schema/nvq.schema.json` and decodes it into the client's types.
+
+**Go** (`go/`, module `github.com/adriangalilea/nvq/go`, package `nvq`): `go get github.com/adriangalilea/nvq/go@v0.3.0` is the whole install. The module carries the release's binaries for linux/amd64 and linux/arm64; the first call writes the one for this machine into the user cache under its sha256 and every later call reuses it, after checking its bytes. `go.sum` pins those bytes, so a program runs exactly the nvq its version was released with: no download at run time, no compiler, nothing on PATH. `NVQ{Path: …}` runs another binary instead.
 
 ```go
-import "github.com/adriangalilea/nvq"
-
-n := nvq.NVQ{Path: "/usr/local/bin/nvq"}
+var n nvq.NVQ
 list, err := n.List(ctx)
 probes, err := n.ProbeAll(ctx)
 for ev, err := range n.Watch(ctx, 10*time.Second) { … }
 ```
 
-Optional values are pointers. A failed probe step is a `Probe` with `OK: false`; `*nvq.Error` carries the code and exit for a command that failed as a whole.
+Optional values are pointers. A failed probe step is a `Probe` with `OK: false`; `*nvq.Error` carries the code and exit for a command that failed as a whole. `go/` also asserts that its embedded binary prints exactly `schema/nvq.schema.json`, so the binary and the types it is decoded into cannot drift apart.
 
-Another language is a sibling directory (`python/`, `ts/`) with types generated from or written against the schema, and a test that decodes every file in `test/fixtures` and validates it against `schema/nvq.schema.json`, as `nvq_test.go` does. The fixtures are real output from scripted failures and real cards, so every client is held to the same ground truth. None exists yet: the first project that needs one adds it.
+Other languages (`python/`, `ts/`) do not exist yet: the first project that needs one adds it, with types generated from or written against the schema and the same fixture test.
+
+## Releasing
+
+`gh workflow run release.yml -f version=vX.Y.Z`. CI builds both binaries, places them in `go/bin`, runs the Go client's tests against them, commits them if their bytes changed, tags `vX.Y.Z` (the binary) and `go/vX.Y.Z` (the Go module), and publishes the release.
 
 ## How it stays correct
 
 - `make test` stages every failure nvq names (a version mismatch after a driver upgrade, a card off the bus, a hung call, a call deaf to signals, a driver older than nvq, a PTX JIT failure) with scripted `libnvidia-ml.so.1` and `libcuda.so.1` from `test/`, on a Linux box with the driver loaded. `test/run.sh --real` adds the box's real cards, read-only.
-- `NVQ_FIXTURES=dir` keeps every output (card UUIDs masked); those are `test/fixtures`, which `go test` validates against the schema and decodes strictly into the Go types.
+- `NVQ_FIXTURES=dir` keeps every output (card UUIDs masked); those are `test/fixtures`, which every client's test validates against the schema and decodes strictly into its types.
 - `make layout` compiles nvq's NVML and CUDA declarations against NVIDIA's own headers: struct layouts, constants and every function signature (each function nvq calls is assigned to a pointer of the signature nvq declares, so a wrong parameter is a compile error). CI runs it against CUDA 12.5, 12.9, 13.1 and 13.4. Where NVML replaced a function (`nvmlDeviceGetTemperature` by the versioned `nvmlDeviceGetTemperatureV` in 12.9, the throttle-named reasons query by the event-named one in driver 535), nvq calls the replacement when the driver exports it and the old one otherwise, and both signatures are checked; a new deprecation in a future header prints as a warning, the next migration.
 - Releases are built in manylinux2014 and CI asserts no symbol newer than glibc 2.17.

@@ -1,4 +1,9 @@
-# Every push builds and checks; a v* tag publishes the binaries as a GitHub release.
+# Every push builds and checks. A release is one dispatch:
+#   gh workflow run release.yml -f version=v0.3.0
+# It builds the binaries, puts them in go/bin (the Go client embeds them), runs the client's tests
+# against them, commits them when their bytes changed, tags the commit vX.Y.Z (the binary) and
+# go/vX.Y.Z (the Go module), and publishes the GitHub release.
+#
 # Built inside manylinux2014 (glibc 2.17), so one binary runs on every Linux an NVIDIA driver runs on.
 # JavaScript actions cannot run in that image (their node needs a newer glibc), so the build is a
 # plain `docker run` on the host runner.
@@ -7,8 +12,12 @@ name: release
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: vX.Y.Z
+        required: true
 
 permissions:
   contents: write
@@ -24,11 +33,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: build
+        env: { VERSION: '${{ inputs.version }}' }
         run: |
-          version=${GITHUB_REF_NAME}
-          [[ $GITHUB_REF_TYPE == tag ]] || version=$(git rev-parse --short HEAD)
-          docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} \
-            make release ARCH=${{ matrix.arch }} VERSION="$version"
+          [[ -n $VERSION ]] || VERSION=$(git rev-parse --short HEAD)
+          [[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || $GITHUB_EVENT_NAME != workflow_dispatch ]]
+          docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} make release ARCH=${{ matrix.arch }} VERSION="$VERSION"
       - name: glibc 2.17 is the newest symbol it needs
         run: |
           newest=$(objdump -T dist/nvq-linux-${{ matrix.arch }} | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
@@ -47,12 +56,14 @@ jobs:
           name: nvq-linux-${{ matrix.arch }}
           path: dist/
 
-  schema:
+  # The Go client against the binaries it embeds (go/bin) and the shared fixtures and schema.
+  go:
     runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: go } }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version-file: go.mod }
+        with: { go-version-file: go/go.mod }
       - run: go test ./...
 
   # nvq declares the NVML and CUDA slices it uses by hand; this compiles those declarations against
@@ -71,16 +82,29 @@ jobs:
             cuda-nvml-dev-13-1 cuda-cudart-dev-13-1 cuda-nvml-dev-13-4 cuda-cudart-dev-13-4
       - run: make layout
 
-  publish:
-    if: github.ref_type == 'tag'
-    needs: [build, schema, layout]
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [build, layout]
     runs-on: ubuntu-24.04
+    env: { VERSION: '${{ inputs.version }}' }
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go/go.mod }
       - uses: actions/download-artifact@v8
         with: { path: dist, merge-multiple: true }
-      - name: release
+      - name: embed, test, commit, tag
+        run: |
+          cp dist/nvq-linux-amd64 dist/nvq-linux-arm64 go/bin/
+          (cd go && go test ./...)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add go/bin
+          git diff --cached --quiet || git commit -m "release $VERSION: embedded binaries"
+          git tag "$VERSION" && git tag "go/$VERSION"
+          git push origin HEAD:main "$VERSION" "go/$VERSION"
+      - name: publish
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           cp schema/nvq.schema.json dist/
-          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+          gh release create "$VERSION" dist/nvq-linux-* dist/nvq.schema.json --title "$VERSION" --generate-notes
