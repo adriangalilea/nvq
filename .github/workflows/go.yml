@@ -9,6 +9,8 @@ on:
     paths: ['go/**', 'schema/**', 'test/fixtures/**', 'Makefile', '.github/workflows/go.yml']
   pull_request:
     paths: ['go/**', 'schema/**', 'test/fixtures/**', 'Makefile', '.github/workflows/go.yml']
+  # release.yml's push of go/bin starts no workflow (GITHUB_TOKEN); it dispatches this one instead.
+  workflow_dispatch:
 
 permissions:
   contents: read
