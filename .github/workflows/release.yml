@@ -30,7 +30,7 @@ jobs:
     env: { VERSION: '${{ inputs.version }}', UV_PYTHON: '3.12' }
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0; no moving major tag
       - uses: actions/download-artifact@v8
         with: { path: dist, merge-multiple: true }
       - name: test with the carried binary, build

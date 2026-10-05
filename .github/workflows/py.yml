@@ -20,7 +20,7 @@ jobs:
     env: { NVQ_VERSION: 0.0.0.dev0, UV_PYTHON: '3.12' }
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0; no moving major tag
       - name: types match the schema
         run: make -C .. -B python/src/nvq/documents.py && git diff --exit-code src/nvq/documents.py
       - run: uv run ruff check
