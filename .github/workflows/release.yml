@@ -63,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version-file: go/go.mod }
+        with: { go-version-file: go/go.mod, cache-dependency-path: go/go.sum }
       - run: go test ./...
 
   # nvq declares the NVML and CUDA slices it uses by hand; this compiles those declarations against
@@ -90,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version-file: go/go.mod }
+        with: { go-version-file: go/go.mod, cache-dependency-path: go/go.sum }
       - uses: actions/download-artifact@v8
         with: { path: dist, merge-multiple: true }
       - name: embed, test, commit, tag
