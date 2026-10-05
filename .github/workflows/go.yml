@@ -1,0 +1,23 @@
+# The Go client against the binaries it embeds (go/bin) and the shared fixtures and schema.
+# A schema change fails here until a release embeds a binary that prints it: the signal to cut one.
+name: go
+
+on:
+  push:
+    branches: [main]
+    paths: ['go/**', 'schema/**', 'test/fixtures/**', '.github/workflows/go.yml']
+  pull_request:
+    paths: ['go/**', 'schema/**', 'test/fixtures/**', '.github/workflows/go.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: go } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go/go.mod, cache-dependency-path: go/go.sum }
+      - run: go test ./...
