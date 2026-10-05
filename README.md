@@ -2,15 +2,43 @@
 
 NVIDIA cards as JSON, for programs. One binary, no driver needed to start, every failure a stable code, every call bounded by a deadline.
 
+```sh
+nvq list
 ```
-$ nvq list
-{"nvq":1,"driver":"590.48.01","nvml":"13.590.48.01","cuda":"13.1","cards":[{"index":0,
- "uuid":"GPU-00000000-1111-2222-3333-444444444444","bus":"0000:01:00.0","minor":0,
- "model":"NVIDIA GeForce RTX 3090","state":"ok","compute":"8.6","memoryMiB":{"total":24576,"used":1503},
- "powerW":{"limit":260.000,"draw":128.180},"tempC":44,"fanPct":70,"clocksMHz":{"sm":1500,"mem":10001},
- "utilPct":{"gpu":100,"mem":0},"pstate":2,"pcie":{"gen":4,"width":16,"maxGen":4,"maxWidth":16,"replays":0},
- "energyJ":15608365.297,"persistence":true,"limits":[],"processes":[{"pid":2073697,"usedMiB":1046}]}]}
+
+```json
+{
+  "nvq": 1,
+  "driver": "590.48.01",
+  "nvml": "13.590.48.01",
+  "cuda": "13.1",
+  "cards": [
+    {
+      "index": 0,
+      "uuid": "GPU-00000000-1111-2222-3333-444444444444",
+      "bus": "0000:01:00.0",
+      "minor": 0,
+      "model": "NVIDIA GeForce RTX 3090",
+      "state": "ok",
+      "compute": "8.6",
+      "memoryMiB": { "total": 24576, "used": 2957 },
+      "powerW": { "limit": 260.000, "draw": 230.728 },
+      "tempC": 49,
+      "fanPct": 70,
+      "clocksMHz": { "sm": 1500, "mem": 10001 },
+      "utilPct": { "gpu": 100, "mem": 2 },
+      "pstate": 2,
+      "pcie": { "gen": 4, "width": 16, "maxGen": 4, "maxWidth": 16, "replays": 0 },
+      "energyJ": 15640697.951,
+      "persistence": true,
+      "limits": [],
+      "processes": [{ "pid": 2133245, "usedMiB": 2500 }]
+    }
+  ]
+}
 ```
+
+Real output from an RTX 3090 ([`test/fixtures/list.real__list.json`](test/fixtures/list.real__list.json)), indented here; nvq prints one line. A lost card is the same entry with `"state": "lost"`.
 
 ## Why
 
