@@ -3,12 +3,14 @@
 //
 //	var n nvq.NVQ                  // the module's own binary; NVQ{Path: …} runs another
 //	list, err := n.List(ctx)       // every card, lost ones included; no CUDA context opened
-//	probe, err := n.ProbeAll(ctx)  // does each card run a kernel, and its capability sheet
+//	probes, err := n.ProbeAll(ctx) // does each card run a kernel, and its capability sheet
 //	for ev, err := range n.Watch(ctx, time.Second) { … }  // Xid events, lost cards, samples
 //
-// A value the card cannot report is a nil pointer, never zero. The contract is the JSON Schema the
-// binary prints with `nvq schema` (../schema/nvq.schema.json); these types mirror it, and the tests hold
-// both to the binary's real output.
+// The document types (documents.go) are generated from the JSON Schema the binary prints with
+// `nvq schema` (../schema/nvq.schema.json) by `make types`; CI regenerates them and fails on any
+// difference. A value the card cannot report is a nil pointer, never zero. This file only runs the
+// process and tells documents apart: a Probe is a ProbeOK or a ProbeFailed, an Event one of the
+// Event* types, so a type switch reads them.
 package nvq
 
 import (
@@ -35,246 +37,82 @@ type NVQ struct {
 	Deadline time.Duration
 }
 
-// Error is a failure nvq reported as a document, or the process failing to produce one.
+// Error is a failure nvq reported as a document (an ErrorDocument, or list's error when NVML is
+// unusable), with nvq's exit code.
 type Error struct {
-	Code   string `json:"code"`   // a "code" from the schema, e.g. driver_not_loaded, lib_rm_version_mismatch, deadline
-	Detail string `json:"detail"` //
-	Exit   int    `json:"-"`      // nvq's exit code
+	Code   Code
+	Detail string
+	Exit   int
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("nvq: %s: %s (exit %d)", e.Code, e.Detail, e.Exit) }
 
-// ---- list -------------------------------------------------------------------------------------
-
-type List struct {
-	NVQ    int    `json:"nvq"`
-	Driver string `json:"driver"`
-	NVML   string `json:"nvml,omitempty"`
-	CUDA   string `json:"cuda,omitempty"`
-	Error  *Error `json:"error,omitempty"` // NVML unusable: every card's State is "unknown"
-	Cards  []Card `json:"cards"`
-}
-
-type Card struct {
-	Index       int               `json:"index"`
-	UUID        string            `json:"uuid"`
-	Bus         string            `json:"bus"`
-	Minor       int               `json:"minor"`
-	Model       string            `json:"model"`
-	State       string            `json:"state"` // ok | lost | error | unknown
-	Error       string            `json:"error,omitempty"`
-	Compute     string            `json:"compute,omitempty"`
-	MemoryMiB   *CardMemory       `json:"memoryMiB,omitempty"`
-	PowerW      *Power            `json:"powerW,omitempty"`
-	TempC       *int              `json:"tempC,omitempty"`
-	FanPct      *int              `json:"fanPct,omitempty"`
-	ClocksMHz   *Clocks           `json:"clocksMHz,omitempty"`
-	UtilPct     *Util             `json:"utilPct,omitempty"`
-	PState      *int              `json:"pstate,omitempty"`
-	PCIe        *PCIe             `json:"pcie,omitempty"`
-	EnergyJ     *float64          `json:"energyJ,omitempty"` // since the driver loaded
-	Persistence *bool             `json:"persistence,omitempty"`
-	Limits      []string          `json:"limits,omitempty"`
-	Processes   []Process         `json:"processes,omitempty"`
-	Unsupported []string          `json:"unsupported,omitempty"`
-	Errors      map[string]string `json:"errors,omitempty"`
-}
-
-type CardMemory struct {
-	Total int64 `json:"total"`
-	Used  int64 `json:"used"`
-}
-
-type Clocks struct {
-	SM  int `json:"sm"`
-	Mem int `json:"mem"`
-}
-
-type Util struct {
-	GPU int `json:"gpu"`
-	Mem int `json:"mem"`
-}
-
-type Power struct {
-	Limit *float64 `json:"limit,omitempty"`
-	Draw  *float64 `json:"draw,omitempty"`
-}
-
-type PCIe struct {
-	Gen      int `json:"gen"`
-	Width    int `json:"width"`
-	MaxGen   int `json:"maxGen"`
-	MaxWidth int `json:"maxWidth"`
-	// Replays counts link retransmissions since the driver loaded; rising means a failing riser or slot.
-	Replays *int64 `json:"replays,omitempty"`
-}
-
-type Process struct {
-	PID     int    `json:"pid"`
-	UsedMiB *int64 `json:"usedMiB,omitempty"`
-}
-
 // List returns every card the kernel bound. A lost card is a Card with State "lost", not an error;
 // NVML being unusable returns the kernel's roster (State "unknown") together with an *Error.
-func (n NVQ) List(ctx context.Context) (List, error) {
-	var l List
+func (n NVQ) List(ctx context.Context) (ListOK, error) {
+	var l ListOK
 	out, code, err := n.run(ctx, n.deadlineArgs("list")...)
 	if err != nil {
 		return l, err
 	}
-	if e := asError(out, code); e != nil && !bytes.Contains(out, []byte(`"cards"`)) {
-		return l, e
+	h, err := peek(out)
+	if err != nil {
+		return l, err
+	}
+	if h.Cards == nil {
+		return l, failure(out, code)
 	}
 	if err := decode(out, &l); err != nil {
 		return l, err
 	}
 	if l.Error != nil {
-		l.Error.Exit = code
-		return l, l.Error
+		return l, &Error{Code: l.Error.Code, Detail: l.Error.Detail, Exit: code}
 	}
 	return l, nil
 }
 
-// ---- probe ------------------------------------------------------------------------------------
-
-// Probe is one card's answer: OK with its capability sheet, or the step that failed and why.
-type Probe struct {
-	NVQ  int    `json:"nvq"`
-	UUID string `json:"uuid"`
-	OK   bool   `json:"ok"`
-
-	Step   string `json:"step,omitempty"`  // failed: the step, or hang / crash in ProbeAll
-	Error  string `json:"error,omitempty"` // failed: a CUDA_ERROR_* name or nvq's own
-	Signal *int   `json:"signal,omitempty"`
-	Exit   *int   `json:"exit,omitempty"`
-	PID    *int   `json:"pid,omitempty"` // stuck_in_driver: the child nvq could not reap
-
-	Name              string     `json:"name,omitempty"`
-	CUDA              string     `json:"cuda,omitempty"`
-	Arch              *Arch      `json:"arch,omitempty"`
-	Layout            *Layout    `json:"layout,omitempty"`
-	Registers         *Registers `json:"registers,omitempty"`
-	SharedBytes       *Shared    `json:"sharedBytes,omitempty"`
-	Memory            *Memory    `json:"memory,omitempty"`
-	SMClockMHz        *int       `json:"smClockMHz,omitempty"`
-	CopyEngines       *int       `json:"copyEngines,omitempty"`
-	ConcurrentKernels *bool      `json:"concurrentKernels,omitempty"`
-	ComputeMode       string     `json:"computeMode,omitempty"`
-	ECC               *bool      `json:"ecc,omitempty"`
-	Integrated        *bool      `json:"integrated,omitempty"`
-	MultiGPUBoard     *bool      `json:"multiGpuBoard,omitempty"`
-	Unsupported       []string   `json:"unsupported,omitempty"`
-
-	MS map[string]float64 `json:"ms,omitempty"` // milliseconds per step
-}
-
-type Arch struct {
-	Compute string `json:"compute"` // "8.6"
-	SM      string `json:"sm"`      // "sm_86"
-	Family  string `json:"family"`  // "ampere"
-}
-
-type Layout struct {
-	SMs                *int    `json:"sms,omitempty"`
-	WarpSize           *int    `json:"warpSize,omitempty"`
-	MaxThreadsPerBlock *int    `json:"maxThreadsPerBlock,omitempty"`
-	MaxThreadsPerSM    *int    `json:"maxThreadsPerSM,omitempty"`
-	MaxBlocksPerSM     *int    `json:"maxBlocksPerSM,omitempty"`
-	MaxWarpsPerSM      *int    `json:"maxWarpsPerSM,omitempty"`
-	MaxBlockDim        *[3]int `json:"maxBlockDim,omitempty"`
-	MaxGridDim         *[3]int `json:"maxGridDim,omitempty"`
-}
-
-type Registers struct {
-	PerBlock *int `json:"perBlock,omitempty"`
-	PerSM    *int `json:"perSM,omitempty"`
-}
-
-type Shared struct {
-	PerBlock      *int `json:"perBlock,omitempty"`
-	PerBlockOptin *int `json:"perBlockOptin,omitempty"`
-	PerSM         *int `json:"perSM,omitempty"`
-}
-
-type Memory struct {
-	TotalMiB          int64    `json:"totalMiB"`
-	BusWidthBits      *int     `json:"busWidthBits,omitempty"`
-	ClockMHz          *int     `json:"clockMHz,omitempty"`
-	PeakGBs           *float64 `json:"peakGBs,omitempty"`
-	L2Bytes           *int64   `json:"l2Bytes,omitempty"`
-	L2PersistingBytes *int64   `json:"l2PersistingBytes,omitempty"`
-	ConstantBytes     *int64   `json:"constantBytes,omitempty"`
-}
-
-// Probe runs a kernel on one card, with only that card visible to CUDA. It opens a CUDA context:
-// do not aim it at a card mid-work you care about. A failed step is a Probe with OK false, not an error.
+// Probe runs a kernel on one card, with only that card visible to CUDA. It opens a CUDA context: do
+// not aim it at a card mid-work you care about. The answer is a ProbeOK, or a ProbeFailed naming the
+// step: a failed step is an answer, not an error.
 func (n NVQ) Probe(ctx context.Context, uuid string) (Probe, error) {
-	var p Probe
 	out, code, err := n.run(ctx, n.deadlineArgs("probe", uuid)...)
 	if err != nil {
-		return p, err
+		return nil, err
 	}
-	if e := asError(out, code); e != nil {
-		return p, e
-	}
-	return p, decode(out, &p)
+	return probe(out, code)
 }
 
 // ProbeAll probes every card at once, each in its own process: a hung card cannot stall the others.
+// An entry is the child's own document: a ProbeOK, a ProbeFailed, or an ErrorDocument for a child
+// that failed as a whole.
 func (n NVQ) ProbeAll(ctx context.Context) ([]Probe, error) {
-	var all struct {
-		NVQ    int     `json:"nvq"`
-		Probes []Probe `json:"probes"`
-	}
 	out, code, err := n.run(ctx, n.deadlineArgs("probe", "all")...)
 	if err != nil {
 		return nil, err
 	}
-	if e := asError(out, code); e != nil {
-		return nil, e
-	}
-	if err := decode(out, &all); err != nil {
+	h, err := peek(out)
+	if err != nil {
 		return nil, err
 	}
-	return all.Probes, nil
+	if h.Probes == nil {
+		return nil, failure(out, code)
+	}
+	var entries []json.RawMessage
+	if err := decode(h.Probes, &entries); err != nil {
+		return nil, err
+	}
+	probes := make([]Probe, len(entries))
+	for i, e := range entries {
+		p, err := entry(e, code)
+		if err != nil {
+			return nil, err
+		}
+		probes[i] = p
+	}
+	return probes, nil
 }
 
-// ---- watch ------------------------------------------------------------------------------------
-
-// Event is one line of watch: start, xid, ecc_double, lost, sample or wait_error.
-type Event struct {
-	NVQ   int     `json:"nvq"`
-	Event string  `json:"event"`
-	At    float64 `json:"at"` // unix seconds
-	UUID  string  `json:"uuid,omitempty"`
-	Bus   string  `json:"bus,omitempty"`
-
-	Cards   []WatchCard `json:"cards,omitempty"`   // start
-	Xid     *int        `json:"xid,omitempty"`     // xid
-	Meaning string      `json:"meaning,omitempty"` // xid: NVIDIA's name for it, "" when nvq has none
-	Data    *uint64     `json:"data,omitempty"`    // ecc_double
-	Error   string      `json:"error,omitempty"`   // lost, wait_error
-
-	TempC       *int     `json:"tempC,omitempty"` // sample
-	PowerW      *float64 `json:"powerW,omitempty"`
-	SMMHz       *int     `json:"smMHz,omitempty"`
-	UtilPct     *int     `json:"utilPct,omitempty"`
-	FanPct      *int     `json:"fanPct,omitempty"`
-	EnergyJ     *float64 `json:"energyJ,omitempty"`
-	PCIeReplays *int64   `json:"pcieReplays,omitempty"`
-	Limits      []string `json:"limits,omitempty"`
-}
-
-type WatchCard struct {
-	UUID        string   `json:"uuid"`
-	Bus         string   `json:"bus"`
-	State       string   `json:"state"`
-	Error       string   `json:"error,omitempty"`
-	Events      []string `json:"events,omitempty"`
-	EventsError string   `json:"eventsError,omitempty"`
-}
-
-// Watch streams events until ctx ends or nvq exits. every > 0 adds a sample per card at that
+// Watch streams events until ctx ends or nvq exits. every > 0 adds an EventSample per card at that
 // interval. The sequence ends with a non-nil error unless ctx was cancelled.
 func (n NVQ) Watch(ctx context.Context, every time.Duration) iter.Seq2[Event, error] {
 	return func(yield func(Event, error) bool) {
@@ -284,19 +122,19 @@ func (n NVQ) Watch(ctx context.Context, every time.Duration) iter.Seq2[Event, er
 		}
 		bin, err := n.path()
 		if err != nil {
-			yield(Event{}, err)
+			yield(nil, err)
 			return
 		}
 		cmd := exec.CommandContext(ctx, bin, args...)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			yield(Event{}, err)
+			yield(nil, err)
 			return
 		}
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Start(); err != nil {
-			yield(Event{}, err)
+			yield(nil, err)
 			return
 		}
 		// One exit path: the process is killed (a no-op once it exited) and reaped exactly once.
@@ -307,16 +145,28 @@ func (n NVQ) Watch(ctx context.Context, every time.Duration) iter.Seq2[Event, er
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 64<<10), 1<<20)
 		for sc.Scan() {
-			line := sc.Bytes()
-			if e := asError(line, 3); e != nil && !bytes.Contains(line, []byte(`"event"`)) {
+			line := bytes.Clone(sc.Bytes())
+			h, err := peek(line)
+			if err != nil {
 				stop() //nolint:errcheck
-				yield(Event{}, e)
+				yield(nil, err)
 				return
 			}
-			var ev Event
-			if err := decode(line, &ev); err != nil {
+			if h.Event == "" {
+				cmd.Wait() //nolint:errcheck // nvq exits after an error document; its code is the point
+				yield(nil, failure(line, cmd.ProcessState.ExitCode()))
+				return
+			}
+			kind, known := eventKinds[h.Event]
+			if !known {
 				stop() //nolint:errcheck
-				yield(Event{}, err)
+				yield(nil, fmt.Errorf("nvq: event %q is not in this package's schema", h.Event))
+				return
+			}
+			ev, err := kind(line)
+			if err != nil {
+				stop() //nolint:errcheck
+				yield(nil, fmt.Errorf("nvq: decoding %.200s: %w", line, err))
 				return
 			}
 			if !yield(ev, nil) {
@@ -328,11 +178,95 @@ func (n NVQ) Watch(ctx context.Context, every time.Duration) iter.Seq2[Event, er
 		if ctx.Err() != nil {
 			return
 		}
-		yield(Event{}, fmt.Errorf("nvq watch ended: %v: %s", err, bytes.TrimSpace(stderr.Bytes())))
+		yield(nil, fmt.Errorf("nvq watch ended: %v: %s", err, bytes.TrimSpace(stderr.Bytes())))
 	}
 }
 
+// eventKinds maps each "event" value to its generated type. A test holds its keys to the schema's
+// event definitions, so a kind added there fails until it is added here.
+var eventKinds = map[string]func([]byte) (any, error){
+	"start":      one[EventStart],
+	"xid":        one[EventXid],
+	"ecc_double": one[EventECCDouble],
+	"lost":       one[EventLost],
+	"wait_error": one[EventWaitError],
+	"sample":     one[EventSample],
+}
+
 // ---- plumbing ---------------------------------------------------------------------------------
+
+// head is what tells documents apart: an ErrorDocument has error and none of the others.
+type head struct {
+	NVQ    int             `json:"nvq"`
+	Event  string          `json:"event"`
+	OK     *bool           `json:"ok"`
+	Cards  json.RawMessage `json:"cards"`
+	Probes json.RawMessage `json:"probes"`
+}
+
+func peek(doc []byte) (head, error) {
+	var h head
+	if err := json.Unmarshal(doc, &h); err != nil {
+		return h, fmt.Errorf("nvq: not JSON: %.200s: %w", doc, err)
+	}
+	if h.NVQ != Schema {
+		return h, fmt.Errorf("nvq: document version %d, this package reads %d: %.200s", h.NVQ, Schema, doc)
+	}
+	return h, nil
+}
+
+func probe(doc []byte, code int) (Probe, error) {
+	h, err := peek(doc)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case h.OK == nil:
+		return nil, failure(doc, code)
+	case *h.OK:
+		return one[ProbeOK](doc)
+	default:
+		return one[ProbeFailed](doc)
+	}
+}
+
+// one decodes doc as a T, the generated type's own checks included: a Probe or an Event holding it,
+// or nil and the error.
+func one[T any](doc []byte) (any, error) {
+	var v T
+	if err := decode(doc, &v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// entry is one of probe all's: a child that failed as a whole left an ErrorDocument, kept as such.
+func entry(doc []byte, code int) (Probe, error) {
+	h, err := peek(doc)
+	if err != nil {
+		return nil, err
+	}
+	if h.OK != nil {
+		return probe(doc, code)
+	}
+	return one[ErrorDocument](doc)
+}
+
+// failure turns an ErrorDocument into an *Error; a document that is not one is a decoding error.
+func failure(doc []byte, code int) error {
+	var d ErrorDocument
+	if err := decode(doc, &d); err != nil {
+		return err
+	}
+	return &Error{Code: d.Error.Code, Detail: d.Error.Detail, Exit: code}
+}
+
+func decode(doc []byte, v any) error {
+	if err := json.Unmarshal(doc, v); err != nil {
+		return fmt.Errorf("nvq: decoding %.200s: %w", doc, err)
+	}
+	return nil
+}
 
 func (n NVQ) path() (string, error) {
 	if n.Path == "" {
@@ -373,28 +307,4 @@ func (n NVQ) run(ctx context.Context, args ...string) ([]byte, int, error) {
 		return nil, code, fmt.Errorf("nvq %v: exit %d, no document: %s", args, code, bytes.TrimSpace(stderr.Bytes()))
 	}
 	return out, code, nil
-}
-
-// asError reads a document that is the {"nvq":1,"error":{…}} shape; nil for any other document.
-func asError(doc []byte, code int) *Error {
-	var e struct {
-		Error *Error `json:"error"`
-	}
-	if json.Unmarshal(doc, &e) != nil || e.Error == nil {
-		return nil
-	}
-	e.Error.Exit = code
-	return e.Error
-}
-
-func decode(doc []byte, v any) error {
-	if err := json.Unmarshal(doc, v); err != nil {
-		return fmt.Errorf("nvq: decoding %.200s: %w", doc, err)
-	}
-	var head struct{ NVQ int }
-	json.Unmarshal(doc, &head) //nolint:errcheck // decoded above
-	if head.NVQ != Schema {
-		return fmt.Errorf("nvq: document version %d, this package reads %d", head.NVQ, Schema)
-	}
-	return nil
 }

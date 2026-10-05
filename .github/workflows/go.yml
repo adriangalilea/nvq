@@ -1,13 +1,14 @@
-# The Go client against the binaries it embeds (go/bin) and the shared fixtures and schema.
+# The Go client against the binaries it embeds (go/bin) and the shared fixtures and schema. Its types
+# are generated from the schema (make types): regenerating them here must change nothing.
 # A schema change fails here until a release embeds a binary that prints it: the signal to cut one.
 name: go
 
 on:
   push:
     branches: [main]
-    paths: ['go/**', 'schema/**', 'test/fixtures/**', '.github/workflows/go.yml']
+    paths: ['go/**', 'schema/**', 'test/fixtures/**', 'Makefile', '.github/workflows/go.yml']
   pull_request:
-    paths: ['go/**', 'schema/**', 'test/fixtures/**', '.github/workflows/go.yml']
+    paths: ['go/**', 'schema/**', 'test/fixtures/**', 'Makefile', '.github/workflows/go.yml']
 
 permissions:
   contents: read
@@ -20,4 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: { go-version-file: go/go.mod, cache-dependency-path: go/go.sum }
+      - name: types match the schema
+        run: make -C .. -B go/documents.go && git diff --exit-code documents.go
+      - run: go vet ./...
       - run: go test ./...

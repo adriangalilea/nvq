@@ -22,8 +22,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10
       - name: types match the schema
-        run: make -C .. -B types && git diff --exit-code src/nvq/documents.py
+        run: make -C .. -B python/src/nvq/documents.py && git diff --exit-code src/nvq/documents.py
       - run: uv run ruff check
-      - run: uv run ruff format --check --exclude src/nvq/documents.py
+      - run: uv run ruff format --check
       - run: uv run pyright src
       - run: uv run pytest -v

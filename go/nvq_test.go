@@ -84,45 +84,91 @@ func TestEveryFixtureMatchesTheSchema(t *testing.T) {
 	t.Logf("%d documents valid", seen)
 }
 
-// strict decodes doc into v refusing unknown keys: a field nvq prints that these types lack fails here.
-func strict(doc []byte, v any) error {
-	dec := json.NewDecoder(bytes.NewReader(doc))
-	dec.DisallowUnknownFields()
-	return dec.Decode(v)
-}
-
-func TestEveryFixtureDecodesIntoTheTypes(t *testing.T) {
+// Every fixture goes through the same reading a call does, the generated types' checks (required
+// fields, constants, enums, patterns) included. documents.go is generated from the schema the fixtures
+// were just validated against, so this proves the reading, not the types.
+func TestEveryFixtureDecodes(t *testing.T) {
 	for def, paths := range fixtures(t) {
 		for _, p := range paths {
 			for _, d := range docs(t, p) {
-				var err error
-				if e := asError(d, 0); e != nil && !bytes.Contains(d, []byte(`"cards"`)) {
-					var w struct {
-						NVQ   int    `json:"nvq"`
-						Error *Error `json:"error"`
+				h, err := peek(d)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var nvqErr *Error
+				switch {
+				case h.Cards == nil && h.Probes == nil && h.OK == nil && h.Event == "":
+					err = failure(d, 0)
+					if errors.As(err, &nvqErr) {
+						err = nil
 					}
-					err = strict(d, &w)
-				} else {
-					switch def {
-					case "list":
-						err = strict(d, &List{})
-					case "probe":
-						err = strict(d, &Probe{})
-					case "probeAll":
-						err = strict(d, &struct {
-							NVQ    int     `json:"nvq"`
-							Probes []Probe `json:"probes"`
-						}{})
-					case "event":
-						err = strict(d, &Event{})
-					default:
-						t.Fatalf("no Go type for def %s", def)
+				case def == "list":
+					_, err = one[ListOK](d)
+				case def == "probe":
+					_, err = probe(d, 0)
+				case def == "probeAll":
+					var all struct{ Probes []json.RawMessage }
+					err = json.Unmarshal(d, &all)
+					for _, e := range all.Probes {
+						if _, err = entry(e, 0); err != nil {
+							break
+						}
 					}
+				case def == "event":
+					kind, ok := eventKinds[h.Event]
+					if !ok {
+						t.Fatalf("%s: event %q has no type", p, h.Event)
+					}
+					_, err = kind(d)
+				default:
+					t.Fatalf("no reading for def %s", def)
 				}
 				if err != nil {
 					t.Errorf("%s: %v\n%s", p, err, d)
 				}
 			}
+		}
+	}
+}
+
+// eventKinds is the one hand-kept list in this package: it must name exactly the schema's event kinds.
+func TestEventKindsAreTheSchemas(t *testing.T) {
+	raw, err := os.ReadFile("../schema/nvq.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Defs map[string]struct {
+			OneOf []struct {
+				Ref string `json:"$ref"`
+			} `json:"oneOf"`
+			Properties struct {
+				Event struct {
+					Const string `json:"const"`
+				} `json:"event"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{}
+	for _, ref := range s.Defs["event"].OneOf {
+		if c := s.Defs[strings.TrimPrefix(ref.Ref, "#/$defs/")].Properties.Event.Const; c != "" {
+			want[c] = true
+		}
+	}
+	if len(want) == 0 {
+		t.Fatal("no event kinds found in the schema")
+	}
+	for k := range want {
+		if eventKinds[k] == nil {
+			t.Errorf("schema event %q has no entry in eventKinds", k)
+		}
+	}
+	for k := range eventKinds {
+		if !want[k] {
+			t.Errorf("eventKinds has %q, which the schema does not", k)
 		}
 	}
 }
@@ -146,7 +192,7 @@ func TestListOutcomes(t *testing.T) {
 	ctx := context.Background()
 
 	l, err := fake(t, "list.list__a_card_fell_off_the_bus.json", 1).List(ctx)
-	if err != nil || l.Cards[0].State != "lost" || l.Cards[0].Error != "gpu_is_lost" {
+	if err != nil || l.Cards[0].State != StateLost || *l.Cards[0].Error != CodeGPUIsLost {
 		t.Fatalf("a lost card is a fact in the list, not an error: %v %+v", err, l)
 	}
 
@@ -174,16 +220,21 @@ func TestListOutcomes(t *testing.T) {
 func TestProbeOutcomes(t *testing.T) {
 	ctx := context.Background()
 	p, err := fake(t, "probe.probe__jit_failure_names_its_step.json", 4).Probe(ctx, "GPU-x")
-	if err != nil || p.OK || p.Step != "jit" || p.Error != "CUDA_ERROR_INVALID_PTX" {
+	f, ok := p.(ProbeFailed)
+	if err != nil || !ok || f.Step != "jit" || f.Error != "CUDA_ERROR_INVALID_PTX" {
 		t.Fatalf("a failed step is an answer: %v %+v", err, p)
 	}
 	p, err = fake(t, "probe.probe__kernel_runs_and_verifies__unknown_attributes_listed.json", 0).Probe(ctx, "GPU-x")
-	if err != nil || !p.OK || *p.Layout.SMs != 128 || p.Layout.MaxBlocksPerSM != nil || p.Arch.Family != "ada" {
+	k, ok := p.(ProbeOK)
+	if err != nil || !ok || *k.Layout.SMs != 128 || k.Layout.MaxBlocksPerSM != nil || k.Arch.Family != FamilyAda {
 		t.Fatalf("probe ok: %v %+v", err, p)
 	}
 	all, err := fake(t, "probeAll.probe_all__a_child_deaf_to_signals_is_killed_from_outside.json", 4).ProbeAll(ctx)
-	if err != nil || len(all) != 1 || all[0].Step != "hang" || all[0].Error != "killed_at_deadline" {
+	if err != nil || len(all) != 1 {
 		t.Fatalf("probe all: %v %+v", err, all)
+	}
+	if f, ok := all[0].(ProbeFailed); !ok || f.Step != "hang" || f.Error != "killed_at_deadline" {
+		t.Fatalf("probe all entry: %+v", all[0])
 	}
 }
 
@@ -197,7 +248,17 @@ func TestWatch(t *testing.T) {
 			end = err
 			break
 		}
-		kinds = append(kinds, ev.Event)
+		switch e := ev.(type) {
+		case EventStart:
+			kinds = append(kinds, e.Event)
+		case EventSample:
+			if e.TempC == nil {
+				t.Fatalf("a real sample has a temperature: %+v", e)
+			}
+			kinds = append(kinds, e.Event)
+		default:
+			t.Fatalf("unexpected event %T", ev)
+		}
 	}
 	if len(kinds) < 2 || kinds[0] != "start" || kinds[1] != "sample" {
 		t.Fatalf("events %v", kinds)
