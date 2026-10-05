@@ -164,12 +164,12 @@
     "probeAll": { "oneOf": [{ "$ref": "#/$defs/errorDocument" }, { "$ref": "#/$defs/probeAllOk" }] },
     "probeAllOk": {
       "type": "object",
-      "description": "One entry per card; a card that failed is an entry that says how, not a failure.",
+      "description": "One entry per card, each naming its card; a card that failed is an entry that says how, not a failure.",
       "required": ["nvq", "probes"],
       "additionalProperties": false,
       "properties": {
         "nvq": { "$ref": "#/$defs/schemaVersion" },
-        "probes": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/errorDocument" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] } }
+        "probes": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] } }
       }
     },
     "ms": { "type": "object", "additionalProperties": { "type": "number" }, "description": "milliseconds per step, in the order run" },
@@ -182,7 +182,7 @@
         "uuid": { "$ref": "#/$defs/uuid" },
         "ok": { "type": "boolean", "const": false },
         "step": { "type": "string", "description": "load, init, device, uuid, name, memory, driver, attributes, context, alloc, memset, jit, function, launch, sync, copy, verify, free, unload, teardown; in probe all also hang (killed or stuck) and crash (died without a document)" },
-        "error": { "type": "string", "description": "a CUDA_ERROR_* name, or not_visible, more_than_one_visible, uuid_mismatch, no_compute_capability, wrong_result, library_not_found, function_not_found: <name>, killed_at_deadline, stuck_in_driver, no_output" },
+        "error": { "type": "string", "description": "a CUDA_ERROR_* name, or not_visible, more_than_one_visible, uuid_mismatch, no_compute_capability, wrong_result, library_not_found, function_not_found: <name>; in probe all also deadline (the child's own deadline ended an interruptible call), killed_at_deadline, stuck_in_driver, no_output" },
         "ms": { "$ref": "#/$defs/ms" },
         "signal": { "type": "integer", "description": "crash: the signal that ended the child" },
         "exit": { "type": "integer", "description": "crash: the child's exit code" },

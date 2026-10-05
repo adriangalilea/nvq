@@ -645,8 +645,8 @@ static int cmd_probe_one(const char *uuid) {
     return EXIT_OK;
 }
 
-// probe all: one child per card, all at once, each killed at the deadline. A child's document is
-// copied verbatim; a child that said nothing in time is reported as a hang.
+// probe all: one child per card, all at once, each killed at the deadline. A child's probe answer is
+// copied verbatim; every other end (its own deadline, a hang, a crash) is a failed probe with its uuid.
 static int cmd_probe_all(long deadline_ms) {
     Card cards[MAX_CARDS];
     int n = roster(cards);
@@ -707,10 +707,14 @@ static int cmd_probe_all(long deadline_ms) {
             reaped = waitpid(pid[i], &status, WNOHANG) == pid[i];
         out[i][len[i]] = 0;
         while (len[i] > 0 && out[i][len[i] - 1] == '\n') out[i][--len[i]] = 0;
-        int child_ok = reaped && WIFEXITED(status) && WEXITSTATUS(status) == EXIT_OK;
-        all_ok &= child_ok;
+        int exited = reaped && WIFEXITED(status);
+        int code = exited ? WEXITSTATUS(status) : -1;
+        all_ok &= code == EXIT_OK;
+        // Only a probe answer (exit 0 or 4) names its card; anything else is reported here, with the uuid.
+        int answered = (code == EXIT_OK || code == EXIT_PROBE) && len[i] > 0 && out[i][0] == '{' &&
+                       out[i][len[i] - 1] == '}';
         jsep(NULL);
-        if (reaped && len[i] > 0 && out[i][0] == '{' && out[i][len[i] - 1] == '}') {
+        if (answered) {
             fputs(out[i], stdout); // the child's own document
         } else {
             jcomma[++jdepth] = 0, fputc('{', stdout);
@@ -724,6 +728,9 @@ static int cmd_probe_all(long deadline_ms) {
             } else if (fd[i] >= 0) {
                 js("step", "hang");
                 js("error", "killed_at_deadline");
+            } else if (code == EXIT_DEADLINE) {
+                js("step", "hang");
+                js("error", "deadline"); // the child's own deadline ended an interruptible call
             } else {
                 js("step", "crash");
                 js("error", "no_output");

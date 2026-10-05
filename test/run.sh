@@ -72,6 +72,9 @@ expect "probe: JIT failure names its step" 4 '.ok==false and .step=="jit" and .e
   jit "$L" -- probe "$uuid"
 expect "probe: an interruptible hang ends at the deadline" 5 '.error.code=="deadline"' \
   hang "$L" -- --deadline-ms 300 probe "$uuid"
+expect "probe all: an interruptible hang names its card" 4 \
+  '.probes[0] | .ok==false and (.uuid|startswith("GPU-")) and .step=="hang" and .error=="deadline"' \
+  hang "$L" -- --deadline-ms 300 probe all
 expect "probe all: a child deaf to signals is killed from outside" 4 \
   '.probes[0] | .ok==false and .step=="hang" and .error=="killed_at_deadline"' \
   stuck "$L" -- --deadline-ms 300 probe all

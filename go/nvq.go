@@ -83,8 +83,7 @@ func (n NVQ) Probe(ctx context.Context, uuid string) (Probe, error) {
 }
 
 // ProbeAll probes every card at once, each in its own process: a hung card cannot stall the others.
-// An entry is the child's own document: a ProbeOK, a ProbeFailed, or an ErrorDocument for a child
-// that failed as a whole.
+// Each entry is a ProbeOK or a ProbeFailed naming its card.
 func (n NVQ) ProbeAll(ctx context.Context) ([]Probe, error) {
 	out, code, err := n.run(ctx, n.deadlineArgs("probe", "all")...)
 	if err != nil {
@@ -103,7 +102,7 @@ func (n NVQ) ProbeAll(ctx context.Context) ([]Probe, error) {
 	}
 	probes := make([]Probe, len(entries))
 	for i, e := range entries {
-		p, err := entry(e, code)
+		p, err := probe(e, code)
 		if err != nil {
 			return nil, err
 		}
@@ -238,18 +237,6 @@ func one[T any](doc []byte) (any, error) {
 		return nil, err
 	}
 	return v, nil
-}
-
-// entry is one of probe all's: a child that failed as a whole left an ErrorDocument, kept as such.
-func entry(doc []byte, code int) (Probe, error) {
-	h, err := peek(doc)
-	if err != nil {
-		return nil, err
-	}
-	if h.OK != nil {
-		return probe(doc, code)
-	}
-	return one[ErrorDocument](doc)
 }
 
 // failure turns an ErrorDocument into an *Error; a document that is not one is a decoding error.

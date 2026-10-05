@@ -108,11 +108,9 @@ class NVQ:
             raise _error(doc, code)
         return doc
 
-    def probe_all(
-        self, timeout: float | None = None
-    ) -> list[ProbeOk | ProbeFailed | documents.ErrorDocument]:
-        """Probes every card at once, each in its own process: a hung card cannot stall the others. An
-        entry is a child's own document, so a child that failed as a whole is an error document."""
+    def probe_all(self, timeout: float | None = None) -> list[ProbeOk | ProbeFailed]:
+        """Probes every card at once, each in its own process: a hung card cannot stall the others.
+        Each entry is a ProbeOk or a ProbeFailed naming its card."""
         doc, code = self._run(["probe", "all"], timeout)
         if "probes" not in doc:
             raise _error(doc, code)

@@ -73,6 +73,9 @@ def test_probe_outcomes(tmp_path):
     ).probe_all()
     assert len(probes) == 1 and probes[0]["step"] == "hang" and probes[0]["error"] == "killed_at_deadline"
 
+    probes = fake(tmp_path, "probeAll.probe_all__an_interruptible_hang_names_its_card.json", 4).probe_all()
+    assert probes[0]["uuid"].startswith("GPU-") and probes[0]["error"] == "deadline"
+
 
 def test_watch(tmp_path):
     kinds = []

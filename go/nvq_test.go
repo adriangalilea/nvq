@@ -110,7 +110,7 @@ func TestEveryFixtureDecodes(t *testing.T) {
 					var all struct{ Probes []json.RawMessage }
 					err = json.Unmarshal(d, &all)
 					for _, e := range all.Probes {
-						if _, err = entry(e, 0); err != nil {
+						if _, err = probe(e, 0); err != nil {
 							break
 						}
 					}
@@ -235,6 +235,10 @@ func TestProbeOutcomes(t *testing.T) {
 	}
 	if f, ok := all[0].(ProbeFailed); !ok || f.Step != "hang" || f.Error != "killed_at_deadline" {
 		t.Fatalf("probe all entry: %+v", all[0])
+	}
+	all, err = fake(t, "probeAll.probe_all__an_interruptible_hang_names_its_card.json", 4).ProbeAll(ctx)
+	if f, ok := all[0].(ProbeFailed); err != nil || !ok || f.UUID == "" || f.Error != "deadline" {
+		t.Fatalf("a child's own deadline is a failed probe naming its card: %v %+v", err, all)
 	}
 }
 

@@ -151,7 +151,7 @@ class ProbeFailed(TypedDict):
     """
     error: str
     """
-    a CUDA_ERROR_* name, or not_visible, more_than_one_visible, uuid_mismatch, no_compute_capability, wrong_result, library_not_found, function_not_found: <name>, killed_at_deadline, stuck_in_driver, no_output
+    a CUDA_ERROR_* name, or not_visible, more_than_one_visible, uuid_mismatch, no_compute_capability, wrong_result, library_not_found, function_not_found: <name>; in probe all also deadline (the child's own deadline ended an interruptible call), killed_at_deadline, stuck_in_driver, no_output
     """
     ms: NotRequired[Ms]
     signal: NotRequired[int]
@@ -435,11 +435,11 @@ type Probe = ErrorDocument | ProbeOk | ProbeFailed
 
 class ProbeAllOk(TypedDict):
     """
-    One entry per card; a card that failed is an entry that says how, not a failure.
+    One entry per card, each naming its card; a card that failed is an entry that says how, not a failure.
     """
 
     nvq: SchemaVersion
-    probes: list[ErrorDocument | ProbeOk | ProbeFailed]
+    probes: list[ProbeOk | ProbeFailed]
 
 
 class EventStart(TypedDict):
