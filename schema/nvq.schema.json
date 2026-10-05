@@ -93,23 +93,20 @@
       "description": "Why the card's clocks are below their maximum right now (NVML clock event reasons).",
       "enum": ["gpu_idle", "applications_clocks", "sw_power_cap", "hw_slowdown", "sync_boost", "sw_thermal", "hw_thermal", "hw_power_brake", "display_clocks"]
     },
-    "list": {
-      "oneOf": [
-        { "$ref": "#/$defs/error" },
-        {
-          "type": "object",
-          "required": ["nvq", "driver", "cards"],
-          "additionalProperties": false,
-          "properties": {
-            "nvq": { "$ref": "#/$defs/schemaVersion" },
-            "driver": { "type": "string", "description": "kernel module version from /proc, \"590.48.01\"; empty when unreadable" },
-            "nvml": { "type": "string", "description": "NVML library version" },
-            "cuda": { "type": "string", "description": "highest CUDA version the driver supports, \"13.1\"" },
-            "error": { "$ref": "#/$defs/errorBody", "description": "NVML could not be used; every card's state is unknown" },
-            "cards": { "type": "array", "items": { "$ref": "#/$defs/card" } }
-          }
-        }
-      ]
+    "list": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/listOk" }] },
+    "listOk": {
+      "type": "object",
+      "description": "Every card the kernel bound; lost ones are cards with state lost, not a failure.",
+      "required": ["nvq", "driver", "cards"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "driver": { "type": "string", "description": "kernel module version from /proc, \"590.48.01\"; empty when unreadable" },
+        "nvml": { "type": "string", "description": "NVML library version" },
+        "cuda": { "type": "string", "description": "highest CUDA version the driver supports, \"13.1\"" },
+        "error": { "$ref": "#/$defs/errorBody", "description": "NVML could not be used; every card's state is unknown" },
+        "cards": { "type": "array", "items": { "$ref": "#/$defs/card" } }
+      }
     },
     "card": {
       "type": "object",
@@ -167,19 +164,16 @@
       }
     },
     "probe": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] },
-    "probeAll": {
-      "oneOf": [
-        { "$ref": "#/$defs/error" },
-        {
-          "type": "object",
-          "required": ["nvq", "probes"],
-          "additionalProperties": false,
-          "properties": {
-            "nvq": { "$ref": "#/$defs/schemaVersion" },
-            "probes": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] } }
-          }
-        }
-      ]
+    "probeAll": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeAllOk" }] },
+    "probeAllOk": {
+      "type": "object",
+      "description": "One entry per card; a card that failed is an entry that says how, not a failure.",
+      "required": ["nvq", "probes"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "probes": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/error" }, { "$ref": "#/$defs/probeOk" }, { "$ref": "#/$defs/probeFailed" }] } }
+      }
     },
     "ms": { "type": "object", "additionalProperties": { "type": "number" }, "description": "milliseconds per step, in the order run" },
     "probeFailed": {
@@ -265,79 +259,114 @@
       }
     },
     "event": {
+      "description": "One line of watch, told apart by \"event\".",
       "oneOf": [
         { "$ref": "#/$defs/error" },
-        {
-          "type": "object",
-          "required": ["nvq", "event", "at"],
-          "properties": {
-            "nvq": { "$ref": "#/$defs/schemaVersion" },
-            "event": { "enum": ["start", "xid", "ecc_double", "lost", "sample", "wait_error"] },
-            "at": { "$ref": "#/$defs/unixTime" }
-          },
-          "allOf": [
-            {
-              "if": { "properties": { "event": { "const": "start" } } },
-              "then": {
-                "required": ["cards"],
-                "properties": {
-                  "cards": {
-                    "type": "array",
-                    "items": {
-                      "type": "object", "additionalProperties": false, "required": ["uuid", "bus", "state"],
-                      "properties": {
-                        "uuid": { "$ref": "#/$defs/uuid" },
-                        "bus": { "$ref": "#/$defs/bus" },
-                        "state": { "enum": ["ok", "lost", "error"] },
-                        "error": { "$ref": "#/$defs/code" },
-                        "events": { "type": "array", "items": { "enum": ["xid", "ecc_double"] }, "description": "event kinds registered for this card" },
-                        "eventsError": { "$ref": "#/$defs/code" }
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            {
-              "if": { "properties": { "event": { "const": "xid" } } },
-              "then": {
-                "required": ["xid", "meaning"],
-                "properties": {
-                  "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" },
-                  "xid": { "type": "integer" },
-                  "meaning": { "type": "string", "description": "NVIDIA's name for it; empty for an Xid nvq has no name for" }
-                }
-              }
-            },
-            {
-              "if": { "properties": { "event": { "const": "ecc_double" } } },
-              "then": { "required": ["data"], "properties": { "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" }, "data": { "type": "integer" } } }
-            },
-            {
-              "if": { "properties": { "event": { "const": "lost" } } },
-              "then": { "required": ["uuid", "bus", "error"], "properties": { "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" }, "error": { "$ref": "#/$defs/code" } } }
-            },
-            {
-              "if": { "properties": { "event": { "const": "wait_error" } } },
-              "then": { "required": ["error"], "properties": { "error": { "$ref": "#/$defs/code" } } }
-            },
-            {
-              "if": { "properties": { "event": { "const": "sample" } } },
-              "then": {
-                "required": ["uuid", "bus"],
-                "properties": {
-                  "uuid": { "$ref": "#/$defs/uuid" }, "bus": { "$ref": "#/$defs/bus" },
-                  "tempC": { "type": "integer" }, "powerW": { "type": "number" }, "smMHz": { "type": "integer" },
-                  "utilPct": { "type": "integer" }, "fanPct": { "type": "integer" },
-                  "energyJ": { "type": "number", "description": "cumulative, as in list" },
-                  "pcieReplays": { "type": "integer", "description": "cumulative, as in list" },
-                  "limits": { "type": "array", "items": { "$ref": "#/$defs/limit" } }
-                }
-              }
-            }
-          ]
-        }
+        { "$ref": "#/$defs/eventStart" },
+        { "$ref": "#/$defs/eventXid" },
+        { "$ref": "#/$defs/eventEccDouble" },
+        { "$ref": "#/$defs/eventLost" },
+        { "$ref": "#/$defs/eventWaitError" },
+        { "$ref": "#/$defs/eventSample" }
       ]
+    },
+    "eventStart": {
+      "type": "object",
+      "description": "First line: the cards watched and the event kinds registered on each.",
+      "required": ["nvq", "event", "at", "cards"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "event": { "const": "start" },
+        "at": { "$ref": "#/$defs/unixTime" },
+        "cards": { "type": "array", "items": { "$ref": "#/$defs/watchCard" } }
+      }
+    },
+    "watchCard": {
+      "type": "object",
+      "required": ["uuid", "bus", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "bus": { "$ref": "#/$defs/bus" },
+        "state": { "enum": ["ok", "lost", "error"] },
+        "error": { "$ref": "#/$defs/code" },
+        "events": { "type": "array", "items": { "enum": ["xid", "ecc_double"] }, "description": "event kinds registered for this card" },
+        "eventsError": { "$ref": "#/$defs/code" }
+      }
+    },
+    "eventXid": {
+      "type": "object",
+      "description": "An Xid error the driver raised; uuid and bus absent when NVML named a device nvq does not watch.",
+      "required": ["nvq", "event", "at", "xid", "meaning"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "event": { "const": "xid" },
+        "at": { "$ref": "#/$defs/unixTime" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "bus": { "$ref": "#/$defs/bus" },
+        "xid": { "type": "integer" },
+        "meaning": { "type": "string", "description": "NVIDIA's name for it; empty for an Xid nvq has no name for" }
+      }
+    },
+    "eventEccDouble": {
+      "type": "object",
+      "description": "A double-bit ECC error; uuid and bus absent when NVML named a device nvq does not watch.",
+      "required": ["nvq", "event", "at", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "event": { "const": "ecc_double" },
+        "at": { "$ref": "#/$defs/unixTime" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "bus": { "$ref": "#/$defs/bus" },
+        "data": { "type": "integer" }
+      }
+    },
+    "eventLost": {
+      "type": "object",
+      "description": "A card NVML stopped reaching, reported once.",
+      "required": ["nvq", "event", "at", "uuid", "bus", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "event": { "const": "lost" },
+        "at": { "$ref": "#/$defs/unixTime" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "bus": { "$ref": "#/$defs/bus" },
+        "error": { "$ref": "#/$defs/code" }
+      }
+    },
+    "eventWaitError": {
+      "type": "object",
+      "description": "Waiting for driver events failed; watch retries after a second.",
+      "required": ["nvq", "event", "at", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "event": { "const": "wait_error" },
+        "at": { "$ref": "#/$defs/unixTime" },
+        "error": { "$ref": "#/$defs/code" }
+      }
+    },
+    "eventSample": {
+      "type": "object",
+      "description": "One card's readings, every --every-ms; a reading the card cannot give is absent.",
+      "required": ["nvq", "event", "at", "uuid", "bus"],
+      "additionalProperties": false,
+      "properties": {
+        "nvq": { "$ref": "#/$defs/schemaVersion" },
+        "event": { "const": "sample" },
+        "at": { "$ref": "#/$defs/unixTime" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "bus": { "$ref": "#/$defs/bus" },
+        "tempC": { "type": "integer" }, "powerW": { "type": "number" }, "smMHz": { "type": "integer" },
+        "utilPct": { "type": "integer" }, "fanPct": { "type": "integer" },
+        "energyJ": { "type": "number", "description": "cumulative, as in list" },
+        "pcieReplays": { "type": "integer", "description": "cumulative, as in list" },
+        "limits": { "type": "array", "items": { "$ref": "#/$defs/limit" } }
+      }
     },
     "version": {
       "type": "object",
