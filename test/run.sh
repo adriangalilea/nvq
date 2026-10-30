@@ -78,7 +78,16 @@ expect "probe all: an interruptible hang names its card" 4 \
 expect "probe all: a child deaf to signals is killed from outside" 4 \
   '.probes[0] | .ok==false and .step=="hang" and .error=="killed_at_deadline"' \
   stuck "$L" -- --deadline-ms 300 probe all
-expect "usage" 2 'true' ok "$L" -- probe nonsense
+# Usage is deliberately plain stderr, with no JSON document on stdout. Do not
+# send empty stdout through jq -e: jq returns 4 when it had no input values.
+usage_code=0
+usage_out=$("$tmp/nvq" probe nonsense) || usage_code=$?
+if [[ $usage_code -eq 2 && -z $usage_out ]]; then
+  echo "ok   usage: exit 2, no stdout document"
+else
+  echo "FAIL usage: exit $usage_code, stdout $usage_out"
+  fails=$((fails + 1))
+fi
 
 if [[ ${1:-} == --real ]]; then
   expect "real: list" 0 '.cards | length > 0 and all(.state=="ok")' "" "" -- list
