@@ -8,7 +8,7 @@ ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 CFLAGS ?= -O2
 WARN = -std=c11 -Wall -Wextra -Werror
 
-nvq: src/nvq.c src/json.h src/nvml.h src/cuda.h build/schema.inc
+nvq: src/nvq.c src/json.h src/nvml.h src/cuda.h src/driver_version.h build/schema.inc
 	$(CC) $(WARN) $(CFLAGS) -Ibuild -DNVQ_VERSION='"$(VERSION)"' -o $@ src/nvq.c -ldl
 
 # The schema as a C byte list, with od (coreutils): no xxd on minimal build images.
@@ -16,8 +16,13 @@ build/schema.inc: schema/nvq.schema.json
 	mkdir -p build
 	od -An -v -tx1 $< | sed 's/ \([0-9a-f][0-9a-f]\)/0x\1,/g' > $@
 
-test: nvq
+test: nvq test-driver-version
 	test/run.sh
+
+test-driver-version:
+	mkdir -p build
+	$(CC) $(WARN) $(CFLAGS) -o build/test-driver-version test/driver_version.c
+	./build/test-driver-version
 
 # Every layout, constant and function signature nvq declares, against each CUDA toolkit installed.
 # Deprecations print and do not fail: they are next migrations, not mismatches.
@@ -54,4 +59,4 @@ python/src/nvq/documents.py: schema/nvq.schema.json
 clean:
 	rm -rf nvq build dist
 
-.PHONY: test layout release types clean
+.PHONY: test test-driver-version layout release types clean

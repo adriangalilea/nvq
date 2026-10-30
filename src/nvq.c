@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 #include "cuda.h"
+#include "driver_version.h"
 #include "json.h"
 #include "nvml.h"
 
@@ -157,15 +158,7 @@ static void kernel_driver(char *out, size_t size) {
     FILE *f = fopen(PROC_VERSION, "r");
     if (!f) return;
     char line[512];
-    if (fgets(line, sizeof line, f)) {
-        char *p = strstr(line, "Kernel Module");
-        if (p) {
-            p += strlen("Kernel Module");
-            while (*p == ' ' || *p == '\t') p++;
-            size_t n = strcspn(p, " \t\n");
-            snprintf(out, size, "%.*s", (int)n, p);
-        }
-    }
+    if (fgets(line, sizeof line, f)) kernel_version(line, out, size);
     fclose(f);
 }
 
